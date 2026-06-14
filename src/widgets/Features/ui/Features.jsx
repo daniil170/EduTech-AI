@@ -5,11 +5,10 @@ export const Features = () => {
         {/* Заголовок секции */}
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="text-3xl font-extrabold text-slate-900 sm:text-4xl">
-            Мощные AI-инструменты для каждого предмета
+            Мощные AI-инструменты для подготовки к ЕНТ
           </h2>
           <p className="mt-4 text-lg text-slate-500">
-            Создано, чтобы справиться со всеми сложностями учебной программы
-            старших классов.
+            Интеллектуальная подготовка ко всем 5 предметам тестирования с учетом твоей специализации.
           </p>
         </div>
 
@@ -19,14 +18,13 @@ export const Features = () => {
           <div className="bg-slate-50 border border-slate-100 p-8 rounded-2xl flex flex-col justify-between">
             <div>
               <div className="w-10 h-10 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 mb-6 text-xl">
-                📷
+                🤖
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-2">
-                AI-Решатель задач
+                AI-Тренажер задач ЕНТ
               </h3>
               <p className="text-slate-600 mb-6 text-sm leading-relaxed">
-                Сделай фото любой задачи по математике, физике или химии. Наш AI
-                разложит её на простые и понятные визуальные шаги.
+                Генерируй бесконечные тестовые задания по спецификации ЕНТ. AI мгновенно проверяет ответы и дает подробный пошаговый разбор решения.
               </p>
             </div>
             {/* Имитация тетради с формулами (как на картинке) */}
@@ -38,7 +36,7 @@ export const Features = () => {
                 {"f'(x) = lim (Δx → 0) [f(x + Δx) - f(x)] / Δx"}
               </div>
               <div className="text-[10px] text-right text-slate-400">
-                EduTrack AI Solver
+                EduTrack ЕНТ AI
               </div>
             </div>
           </div>
@@ -50,11 +48,10 @@ export const Features = () => {
                 📈
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-2">
-                Аналитика прогресса
+                Анализ и прогноз баллов
               </h3>
               <p className="text-slate-600 mb-6 text-sm leading-relaxed">
-                Точно знай, где ты находишься. Прогнозируй свои результаты на
-                реальных экзаменах на основе твоего текущего уровня мастерства.
+                Следи за ростом своей успеваемости. AI анализирует результаты тренировок и прогнозирует твой итоговый балл ЕНТ на основе кодификатора НЦТ.
               </p>
             </div>
             {/* Прогресс бар из макета */}
@@ -81,12 +78,10 @@ export const Features = () => {
               📝
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-2">
-              Умная подготовка
+              Умное планирование
             </h3>
             <p className="text-slate-600 text-sm leading-relaxed">
-              Персональные пробные экзамены, которые адаптируются под твои
-              слабые места, гарантируя, что ты тратишь время там, где это важнее
-              всего.
+              AI автоматически генерирует расписание подготовки и темы для изучения, распределяя их по календарю с учетом оставшегося до ЕНТ времени.
             </p>
           </div>
 

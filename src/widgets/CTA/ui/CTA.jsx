@@ -5,18 +5,17 @@ export const CTA = ({ onAuthClick }) => {
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-3xl px-6 py-12 md:p-16 text-center relative overflow-hidden shadow-xl shadow-indigo-100">
           <div className="relative z-10 max-w-2xl mx-auto">
             <h2 className="text-3xl font-extrabold text-white sm:text-4xl tracking-tight">
-              Готов сдать следующий экзамен на максимум?
+              Готов сдать ЕНТ на максимальный балл?
             </h2>
             <p className="mt-4 text-lg text-indigo-100">
-              Присоединяйся к EduTrack AI сегодня и начни готовиться по персональному плану, созданному искусственным интеллектом специально для тебя.
+              Присоединяйся к EduTrack ЕНТ AI сегодня и начни готовиться по персональному плану, созданному искусственным интеллектом специально для тебя.
             </p>
             <div className="mt-8 flex justify-center">
-              {/* Кнопка "Зарегистрироваться бесплатно" теперь вызывает модалку */}
               <button 
                 onClick={onAuthClick}
                 className="bg-white text-indigo-600 hover:bg-indigo-50 px-8 py-4 rounded-2xl text-base font-semibold shadow-md transition transform hover:-translate-y-0.5"
               >
-                Зарегистрироваться бесплатно
+                Начать подготовку бесплатно
               </button>
             </div>
           </div>

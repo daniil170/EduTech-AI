@@ -13,7 +13,8 @@ export const AuthModal = ({ isOpen, onClose }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState("student"); // "student" или "teacher"
+  const [grade, setGrade] = useState("11 класс");
+  const [daysToUnt, setDaysToUnt] = useState("");
 
   if (!isOpen) return null;
 
@@ -47,7 +48,13 @@ export const AuthModal = ({ isOpen, onClose }) => {
         await signInWithEmailAndPassword(auth, email, password);
         alert("Успешный вход!");
       } else {
-        localStorage.setItem("selected_role", role);
+        localStorage.setItem("selected_role", "student");
+        localStorage.setItem("selected_grade", grade);
+        if (grade === "11 класс") {
+          localStorage.setItem("selected_days_to_unt", daysToUnt);
+        } else {
+          localStorage.removeItem("selected_days_to_unt");
+        }
         await createUserWithEmailAndPassword(auth, email, password);
         alert("Успешная регистрация!");
       }
@@ -63,6 +70,13 @@ export const AuthModal = ({ isOpen, onClose }) => {
   const handleGoogleSignIn = async () => {
     setError("");
     try {
+      localStorage.setItem("selected_role", "student");
+      localStorage.setItem("selected_grade", grade);
+      if (grade === "11 класс") {
+        localStorage.setItem("selected_days_to_unt", daysToUnt);
+      } else {
+        localStorage.removeItem("selected_days_to_unt");
+      }
       await signInWithPopup(auth, googleProvider);
       alert("Успешный вход через Google!");
       onClose();
@@ -188,24 +202,38 @@ export const AuthModal = ({ isOpen, onClose }) => {
             </div>
             
             {activeTab === "register" && (
-              <div className="space-y-1.5 mt-2">
-                <label className="block text-xs font-semibold text-slate-700">Кто вы?</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setRole("student")}
-                    className={`py-2.5 rounded-xl text-xs font-bold border transition ${role === "student" ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-sm" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}
-                  >
-                    🎓 Ученик
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("teacher")}
-                    className={`py-2.5 rounded-xl text-xs font-bold border transition ${role === "teacher" ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-sm" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}
-                  >
-                    👩‍🏫 Учитель
-                  </button>
+              <div className="space-y-4 mt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Выберите ваш класс</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {["9 класс", "10 класс", "11 класс"].map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setGrade(g)}
+                        className={`py-2.5 rounded-xl text-xs font-bold border transition ${grade === g ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-sm" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {grade === "11 класс" && (
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Сколько дней осталось до ЕНТ?</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      required
+                      value={daysToUnt}
+                      onChange={(e) => setDaysToUnt(e.target.value)}
+                      placeholder="Например: 120"
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition placeholder:text-slate-300"
+                    />
+                  </div>
+                )}
               </div>
             )}
 

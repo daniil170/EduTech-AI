@@ -5,7 +5,7 @@ export const Header = ({ onAuthClick }) => {
         
         <div className="flex items-center gap-2 font-bold text-xl text-slate-900">
           <span className="w-6 h-6 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-black">E</span>
-          EduTrack <span className="text-indigo-600">AI</span>
+          EduTrack <span className="text-indigo-600">ЕНТ AI</span>
         </div>
 
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">

@@ -6,9 +6,12 @@ export const Footer = () => {
           <span className="w-5 h-5 bg-indigo-600 rounded flex items-center justify-center text-white text-[10px] font-black">
             E
           </span>
-          EduTrack AI
+          EduTrack ЕНТ AI
         </div>
-        <p>© 2026 EduTrack AI. Все права защищены. Создано для учеников 9–11 классов.</p>
+        <p>
+          EduTrack ЕНТ AI. Все права защищены. Специализированная подготовка к ЕНТ.
+          <span className="block sm:inline sm:ml-4 text-xs text-indigo-600 font-bold">Developed by Ivakin Daniil</span>
+        </p>
       </div>
     </footer>
   );

@@ -127,7 +127,7 @@ export const Dashboard = () => {
               <h2 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900 uppercase">Доступные предметы для подготовки</h2>
               <p className="text-slate-500 text-sm mt-1">Выбирай нужное направление и переходи к практике</p>
             </div>
-            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">Каталог обновлен на 2026 год</span>
+            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">Каталог обновлен</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -238,7 +238,7 @@ export const Dashboard = () => {
       </main>
 
       <footer className="border-t border-slate-200/60 bg-white py-8 px-6 text-center text-slate-400 text-xs font-medium">
-        <p>© 2026 EduTrack AI. Разработано для школьников Казахстана 🇰🇿. Все права защищены.</p>
+        <p>EduTrack AI. Разработано для школьников Казахстана 🇰🇿. Все права защищены. <span className="text-indigo-600 font-bold ml-2">Developed by Ivakin Daniil</span></p>
       </footer>
 
     </div>

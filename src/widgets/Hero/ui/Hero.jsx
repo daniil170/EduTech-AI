@@ -4,28 +4,26 @@ export const Hero = ({ onAuthClick }) => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
         
         <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded-full text-xs font-medium mb-6">
-          Разработано для учеников 9 и 11 классов
+          Разработано специально для подготовки к ЕНТ в Казахстане
         </div>
 
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight sm:text-6xl max-w-4xl mx-auto leading-tight">
-          Сдавай экзамены на максимум с <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">AI-подготовкой</span>
+          Сдавай ЕНТ на 140 баллов с <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">AI-подготовкой</span>
         </h1>
 
         <p className="mt-6 text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          Загрузи любую задачу, получи мгновенное визуальное объяснение и персональный план подготовки. Твой личный AI-репетитор доступен 24/7.
+          Выбери свою комбинацию профильных предметов, получи индивидуальный план обучения от AI и тренируйся на реальных заданиях ЕНТ с умным календарем.
         </p>
 
         {/* Кнопки действия */}
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-          {/* Попробовать бесплатно теперь открывает модалку */}
           <button 
             onClick={onAuthClick}
             className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-base font-semibold shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5"
           >
-            Попробовать бесплатно
+            Начать подготовку к ЕНТ
           </button>
           
-          {/* Смотреть демо тоже можно привязать к авторизации или оставить как заглушку */}
           <button 
             onClick={onAuthClick}
             className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-8 py-4 rounded-2xl text-base font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
@@ -43,12 +41,12 @@ export const Hero = ({ onAuthClick }) => {
                   <div className="w-3 h-3 rounded-full bg-red-500"></div>
                   <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                   <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                  <span className="ml-2 text-slate-500 text-[10px]">EduTrack AI — Панель Аналитики Ученика</span>
+                  <span className="ml-2 text-slate-500 text-[10px]">EduTrack ЕНТ AI — Панель Аналитики Ученика</span>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4 h-full pt-2">
                 <div className="col-span-2 border border-slate-800 rounded-lg p-4 bg-slate-900/50 flex flex-col justify-between">
-                  <div className="text-slate-200 font-sans font-bold text-sm">График успеваемости (Теория вероятностей)</div>
+                  <div className="text-slate-200 font-sans font-bold text-sm">График успеваемости к ЕНТ (Все предметы)</div>
                   <div className="h-32 flex items-end gap-3 pt-4">
                     <div className="w-full bg-indigo-500 h-[40%] rounded-t"></div>
                     <div className="w-full bg-indigo-500 h-[55%] rounded-t"></div>
@@ -60,9 +58,9 @@ export const Hero = ({ onAuthClick }) => {
                 <div className="border border-slate-800 rounded-lg p-4 bg-slate-900/50 flex flex-col gap-3">
                   <div className="text-slate-200 font-sans font-bold text-xs">Слабые темы</div>
                   <div className="space-y-2 font-sans text-[11px]">
-                    <div className="p-2 bg-red-950/40 text-red-400 rounded border border-red-900/30">✕ Логарифмы (42%)</div>
-                    <div className="p-2 bg-amber-950/40 text-amber-400 rounded border border-amber-900/30">⚠ Стереометрия (65%)</div>
-                    <div className="p-2 bg-green-950/40 text-green-400 rounded border border-green-900/30">✓ Производная (92%)</div>
+                    <div className="p-2 bg-red-950/40 text-red-400 rounded border border-red-900/30">✕ История Казахстана (42%)</div>
+                    <div className="p-2 bg-amber-950/40 text-amber-400 rounded border border-amber-900/30">⚠ Математическая грамотность (65%)</div>
+                    <div className="p-2 bg-green-950/40 text-green-400 rounded border border-green-900/30">✓ Профильный предмет (92%)</div>
                   </div>
                 </div>
               </div>

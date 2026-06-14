@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "./app/providers/Firebase/firebase";
 
 import { LandingPage } from "./pages/LandingPage";
@@ -10,31 +10,31 @@ import { Workspace } from "./pages/Workspace";
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    let unsubDoc = null;
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      // Отписываемся от предыдущего слушателя документа при смене пользователя
-      if (unsubDoc) {
-        unsubDoc();
-        unsubDoc = null;
-      }
-
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
+        // Show loading screen while syncing user document
+        setLoading(true);
         const userDocRef = doc(db, "users", currentUser.uid);
 
-        // Используем onSnapshot для мгновенной загрузки из оффлайн-кэша без ожидания сети
-        unsubDoc = onSnapshot(userDocRef, (docSnap) => {
+        try {
+          const docSnap = await getDoc(userDocRef);
           if (!docSnap.exists()) {
-            const savedRole = localStorage.getItem("selected_role") || "student";
+            const savedGrade = localStorage.getItem("selected_grade") || "11 класс";
+            const savedDaysToUnt = localStorage.getItem("selected_days_to_unt") || "";
             localStorage.removeItem("selected_role");
+            localStorage.removeItem("selected_grade");
+            localStorage.removeItem("selected_days_to_unt");
 
-            setDoc(userDocRef, {
+            await setDoc(userDocRef, {
               email: currentUser.email,
-              role: savedRole,
-              grade: savedRole === "teacher" ? "Преподаватель" : "11 класс",
-              examType: savedRole === "teacher" ? "Управление" : "ЕНТ 2026",
+              role: "student",
+              grade: savedGrade,
+              daysToUnt: savedDaysToUnt ? parseInt(savedDaysToUnt, 10) : "",
+              examType: "ЕНТ",
+              profileCombination: "",
               overallProgress: 0,
               targetScore: 140,
               streakDays: 0,
@@ -49,11 +49,7 @@ function App() {
                 { day: "Вс", solved: 0 }
               ],
 
-              subjectsMastery: [
-                { id: "math", name: "Математическая грамотность", level: "Базовый", progress: 0, color: "bg-indigo-600" },
-                { id: "history", name: "История Казахстана", level: "Базовый", progress: 0, color: "bg-emerald-500" },
-                { id: "science", name: "Профильный предмет", level: "Базовый", progress: 0, color: "bg-slate-800" }
-              ],
+              subjectsMastery: [],
 
               attentionRequired: [],
 
@@ -75,46 +71,87 @@ function App() {
                 recommendations: []
               },
               recentActivity: [
-                { id: "act-1", type: "Система", name: "Добро пожаловать в EduTech AI! Начните подготовку, решив задачу в ИИ-Тренажере или вступив в класс.", score: "+0 опыта", time: "Только что" }
+                { id: "act-1", type: "Система", name: "Добро пожаловать в EduTrack AI! Начните подготовку, решив задачу в ИИ-Тренажере.", score: "+0 опыта", time: "Только что" }
               ]
-            }).catch(err => console.error("Ошибка создания документа:", err));
+            });
           }
-          
-          setUser(currentUser);
-          setLoading(false);
-        }, (error) => {
-          console.warn("Предупреждение оффлайн-режима в onSnapshot:", error);
-          setUser(currentUser);
-          setLoading(false);
-        });
+        } catch (err) {
+          console.error("Ошибка при проверке/создании документа пользователя:", err);
+        }
+
+        setUser(currentUser);
+        setLoading(false);
+        if (window.location.pathname === "/") {
+          navigate("/workspace");
+        }
       } else {
         setUser(null);
         setLoading(false);
+        if (window.location.pathname !== "/") {
+          navigate("/");
+        }
       }
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubDoc) unsubDoc();
     };
-  }, []);
+  }, [navigate]);
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-white">
-        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden font-sans select-none">
+        {/* Background ambient blobs */}
+        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-purple-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
+
+        {/* Center content container */}
+        <div className="relative flex flex-col items-center z-10">
+          {/* Outer glowing rings */}
+          <div className="relative w-28 h-28 flex items-center justify-center">
+            {/* Outer spinning ring */}
+            <div className="absolute inset-0 rounded-full border-[3px] border-indigo-500/20 border-t-indigo-500 border-r-indigo-500 animate-spin [animation-duration:1.2s] premium-glow"></div>
+            
+            {/* Inner counter-spinning ring */}
+            <div className="absolute inset-2.5 rounded-full border-[3px] border-purple-500/10 border-b-purple-500 border-l-purple-500 animate-spin [animation-duration:1.8s] [animation-direction:reverse]"></div>
+            
+            {/* Center glowing badge with graduation cap icon */}
+            <div className="absolute inset-5.5 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center premium-glow-cyan shadow-indigo-500/40">
+              <svg className="w-8 h-8 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+                <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Text block */}
+          <div className="mt-8 flex flex-col items-center text-center px-4">
+            <h2 className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-purple-200">
+              EduTrack <span className="text-indigo-400">AI</span>
+            </h2>
+            <p className="text-[11px] text-indigo-300/60 font-semibold tracking-wider uppercase mt-1">
+              Настройка траектории обучения
+            </p>
+            <p className="text-xs text-slate-400 font-medium tracking-wide animate-pulse mt-4 max-w-[280px]">
+              Инициализация защищенного соединения и профиля...
+            </p>
+          </div>
+
+          {/* Tiny progress/scanning bar */}
+          <div className="h-[2px] w-36 bg-slate-900 rounded-full overflow-hidden mt-6 relative">
+            <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full animate-progress-width"></div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={user ? <Navigate to="/workspace" /> : <LandingPage />} />
-        <Route path="/dashboard" element={<Navigate to="/workspace" />} />
-        <Route path="/workspace" element={user ? <Workspace /> : <Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={user ? <Navigate to="/workspace" /> : <LandingPage />} />
+      <Route path="/dashboard" element={<Navigate to="/workspace" />} />
+      <Route path="/workspace" element={user ? <Workspace /> : <Navigate to="/" />} />
+    </Routes>
   );
 }
 

@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth"; // Добавили GoogleAuthProvider назад
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBDpjMu3D2sGRqe4sGX4G2ny4_oWvVl2D4",
@@ -17,11 +17,7 @@ const app = initializeApp(firebaseConfig);
 
 // Экспортируем аутентификацию и ТОТ САМЫЙ GOOGLE PROVIDER
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider(); // Вот он, теперь линтер не будет ругаться
+export const googleProvider = new GoogleAuthProvider();
 
-// Включаем оффлайн-кэш, чтобы при ошибках сети / оффлайне ничего не зависало
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-});
+// Включаем стандартный Firestore для быстрой загрузки
+export const db = getFirestore(app);
