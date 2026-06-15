@@ -105,7 +105,7 @@ const getTopicsForSubject = (subjectName) => {
       "Ауыз әдебиеті және фольклор",
       "Абай және Ыбырай шығармашылығы",
       "ХХ ғасыр басындағы әдебиет",
-      "Кеңес дәуіріндегі қазақ әдебиеті",
+      "Кеңес дәуіріндеги қазақ әдебиеті",
       "Қазіргі қазақ әдебиеті"
     ],
     "Русский язык": [
@@ -138,6 +138,9 @@ export const Workspace = () => {
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const [activeExam, setActiveExam] = useState(null);
+  
+  const [onboardingStep, setOnboardingStep] = useState("select_combo");
+
   const [studentStats, setStudentStats] = useState(() => {
     try {
       const currentUser = auth.currentUser;
@@ -145,7 +148,6 @@ export const Workspace = () => {
         const cached = localStorage.getItem(`cached_student_stats_${currentUser.uid}`);
         if (cached) return JSON.parse(cached);
         
-        // Default fallback if offline registration
         const savedGrade = localStorage.getItem("selected_grade") || "11 класс";
         const savedDaysToUnt = localStorage.getItem("selected_days_to_unt") || "";
         return {
@@ -155,6 +157,7 @@ export const Workspace = () => {
           daysToUnt: savedDaysToUnt ? parseInt(savedDaysToUnt, 10) : "",
           examType: "ЕНТ",
           profileCombination: "",
+          hasPassedDiagnostic: false,
           overallProgress: 0,
           targetScore: 140,
           streakDays: 0,
@@ -180,16 +183,15 @@ export const Workspace = () => {
             recommendations: []
           },
           recentActivity: [
-            { id: "act-1", type: "Система", name: "Добро пожаловать в EduTrack AI! Начните подготовку, решив задачу в ИИ-Тренажере.", score: "+0 опыта", time: "Только что" }
+            { id: "act-1", type: "Система", name: "Добро пожаловать в EduTrack AI! Начните подготовку с прохождения диагностического теста.", score: "+0 опыта", time: "Только что" }
           ]
         };
       }
       return null;
-    } catch (e) {
+    } catch {
       return null;
     }
   });
-
 
   const [geminiKey, setGeminiKey] = useState(
     localStorage.getItem("gemini_api_key") || "",
@@ -374,59 +376,6 @@ export const Workspace = () => {
         ],
         correctIndex: 1,
         explanation: "По второму закону Ньютона a = F/m. При одинаковой силе ускорение обратно пропорционально массе."
-      },
-      "Биология": {
-        question: "Какая нить ДНК синтезируется непрерывно в направлении репликационной вилки?",
-        formula: "5' \\rightarrow 3'",
-        sub: "Выберите тип цепи ДНК:",
-        options: [
-          "A) Отстающая цепь",
-          "B) Лидирующая цепь",
-          "C) Материнская цепь",
-          "D) Праймерная цепь",
-        ],
-        correctIndex: 1,
-        explanation: "Лидирующая цепь синтезируется непрерывно в направлении 5'→3', совпадающем с движением репликационной вилки."
-      },
-      "Химия": {
-        question: "Какова степень окисления серы в серной кислоте H2SO4?",
-        formula: "H_2SO_4",
-        sub: "Выберите значение степени окисления:",
-        options: ["A) +2", "B) +4", "C) +6", "D) -2"],
-        correctIndex: 2,
-        explanation: "В H2SO4: водород +1 (x2 = +2), кислород -2 (x4 = -8). Сумма степеней окисления равна 0, значит у серы +6."
-      },
-      "Информатика": {
-        question: "Что выведет код print(len([1, 2, 3]) + 2)?",
-        formula: "\\text{len}(arr) + 2",
-        sub: "Выберите результат:",
-        options: ["A) 3", "B) 4", "C) 5", "D) Ошибка выполнения"],
-        correctIndex: 2,
-        explanation: "Функция len([1, 2, 3]) возвращает длину списка, равную 3. Складывая 3 + 2, получаем 5."
-      },
-      "География": {
-        question: "Какая страна занимает первое место в мире по площади территории?",
-        formula: "",
-        sub: "Выберите государство:",
-        options: ["A) Канада", "B) Россия", "C) Китай", "D) США"],
-        correctIndex: 1,
-        explanation: "Россия является крупнейшей по площади страной мира с территорией около 17.1 млн кв. км."
-      },
-      "Всемирная история": {
-        question: "В каком году началась Первая мировая война?",
-        formula: "",
-        sub: "Выберите год начала конфликта:",
-        options: ["A) 1905 г.", "B) 1914 г.", "C) 1918 г.", "D) 1939 г."],
-        correctIndex: 1,
-        explanation: "Первая мировая война началась 28 июля 1914 года после сараевского убийства эрцгерцога Франца Фердинанда."
-      },
-      "Основы права": {
-        question: "Каким органом принимаются законы в Республике Казахстан?",
-        formula: "",
-        sub: "Выберите законодательный орган:",
-        options: ["A) Правительство РК", "B) Парламент РК", "C) Президент РК", "D) Верховный Суд РК"],
-        correctIndex: 1,
-        explanation: "Парламент Республики Казахстан является высшим представительным органом, осуществляющим законодательные функции."
       }
     };
 
@@ -563,8 +512,8 @@ export const Workspace = () => {
               ...(studentStats.recentActivity || []).slice(0, 4),
             ],
           });
-        } catch (e) {
-          console.error("Ошибка при начислении прогресса:", e);
+        } catch {
+          console.error("Ошибка при начислении прогресса");
         }
       } else {
         const currentAttention = studentStats.attentionNeeded || [];
@@ -583,20 +532,17 @@ export const Workspace = () => {
                 ...currentAttention.slice(0, 3),
               ],
             });
-          } catch (e) {
-            console.error("Ошибка обновления списка внимания:", e);
+          } catch {
+            console.error("Ошибка обновления списка внимания");
           }
         }
       }
     }
   };
 
-
-
   useEffect(() => {
     if (!user) return;
 
-    // Set safety timeout to prevent infinite loading when offline
     const timer = setTimeout(() => {
       setLoading(false);
     }, 3000);
@@ -629,11 +575,10 @@ export const Workspace = () => {
     };
   }, [user]);
 
-
-
-  const handleConfirmCombo = async (combo) => {
-    if (!user || !combo) return;
+  const handleFinishDiagnostic = async (scorePercent, combo) => {
+    if (!user) return;
     setOnboardingSaving(true);
+
     const subjectsMap = {
       "Математика – Физика": ["Математика", "Физика"],
       "Биология – Химия": ["Биология", "Химия"],
@@ -648,13 +593,16 @@ export const Workspace = () => {
     };
 
     const profileSubs = subjectsMap[combo] || ["Профильный предмет 1", "Профильный предмет 2"];
+    const allCurrentSubjects = ["История Казахстана", "Грамотность чтения", "Математическая грамотность", ...profileSubs];
     
+    const startProgress = scorePercent > 80 ? 35 : scorePercent > 45 ? 20 : 5;
+
     const subjectsMastery = [
-      { id: "history", name: "История Казахстана", level: "Базовый", progress: 0, color: "bg-emerald-500", icon: "🕌" },
-      { id: "read_lit", name: "Грамотность чтения", level: "Базовый", progress: 0, color: "bg-teal-500", icon: "📖" },
-      { id: "math_lit", name: "Математическая грамотность", level: "Базовый", progress: 0, color: "bg-indigo-500", icon: "📐" },
-      { id: "profile_1", name: profileSubs[0], level: "Базовый", progress: 0, color: "bg-blue-600", icon: "🧬" },
-      { id: "profile_2", name: profileSubs[1], level: "Базовый", progress: 0, color: "bg-purple-600", icon: "⚡" }
+      { id: "history", name: "История Казахстана", level: startProgress > 20 ? "Средний" : "Базовый", progress: startProgress, color: "bg-emerald-500", icon: "🕌" },
+      { id: "read_lit", name: "Грамотность чтения", level: startProgress > 20 ? "Средний" : "Базовый", progress: startProgress, color: "bg-teal-500", icon: "📖" },
+      { id: "math_lit", name: "Математическая грамотность", level: startProgress > 20 ? "Средний" : "Базовый", progress: startProgress, color: "bg-indigo-500", icon: "📐" },
+      { id: "profile_1", name: profileSubs[0], level: startProgress > 20 ? "Средний" : "Базовый", progress: startProgress, color: "bg-blue-600", icon: "🧬" },
+      { id: "profile_2", name: profileSubs[1], level: startProgress > 20 ? "Средний" : "Базовый", progress: startProgress, color: "bg-purple-600", icon: "⚡" }
     ];
 
     const initialGoals = [
@@ -669,45 +617,56 @@ export const Workspace = () => {
       { id: "sp-3", name: "Казахстан в период Средневековья", status: "upcoming", date: "Срок: через 2 недели" }
     ];
 
-    // Optimistic Update: Update local state and cache immediately so the UI transitions instantly
-    const updatedStats = {
-      ...(studentStats || {}),
-      profileCombination: combo,
-      subjectsMastery: subjectsMastery,
-      weeklyGoals: initialGoals,
-      examPrep: {
-        completedPercent: 0,
-        studyPlan: studyPlan,
-        recommendations: []
+    try {
+      const today = new Date();
+      for (let i = 0; i < 4; i++) {
+        const targetDay = new Date(today);
+        targetDay.setDate(today.getDate() + (i + 1));
+        const dateStr = targetDay.toISOString().split("T")[0];
+        
+        const targetSub = allCurrentSubjects[i % allCurrentSubjects.length];
+        const topics = getTopicsForSubject(targetSub);
+        const randomTopic = topics[Math.floor(Math.random() * topics.length)];
+
+        await addDoc(collection(db, "calendar"), {
+          title: `AI Урок: ${randomTopic}`,
+          subject: targetSub,
+          topic: randomTopic,
+          time: "16:00",
+          date: dateStr,
+          studentId: user.uid,
+          createdAt: new Date().toISOString()
+        });
       }
-    };
 
-    setStudentStats(updatedStats);
-    try {
-      localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
-    } catch (e) {
-      console.error("Optimistic cache save failed:", e);
-    }
-
-    setTasksSubject(subjectsMastery[0].name);
-    const topics = getTopicsForSubject(subjectsMastery[0].name);
-    setTasksTopic(topics[0]);
-    setOnboardingSaving(false);
-
-    // Perform Firestore write in background
-    try {
       await updateDoc(doc(db, "users", user.uid), {
         profileCombination: combo,
+        hasPassedDiagnostic: true,
         subjectsMastery: subjectsMastery,
         weeklyGoals: initialGoals,
+        overallProgress: Math.round(scorePercent / 3),
         examPrep: {
           completedPercent: 0,
           studyPlan: studyPlan,
           recommendations: []
-        }
+        },
+        recentActivity: [
+          {
+            id: crypto.randomUUID(),
+            type: "Система",
+            name: `Пройдена стартовая ИИ-диагностика на ${scorePercent}% баллов. Календарь сформирован!`,
+            score: "+500 опыта",
+            time: "Только что"
+          }
+        ]
       });
+
+      setTasksSubject(subjectsMastery[0].name);
+      setTasksTopic(getTopicsForSubject(subjectsMastery[0].name)[0]);
     } catch (err) {
-      console.warn("Background Firestore save deferred (offline mode active):", err);
+      console.error("Ошибка автопланирования при диагностике:", err);
+    } finally {
+      setOnboardingSaving(false);
     }
   };
 
@@ -724,8 +683,6 @@ export const Workspace = () => {
     
     try {
       const today = new Date();
-      
-      // Вычисляем интенсивность и количество тренировок на основе класса и дней до экзамена
       let scheduledCount = 3;
       let messageSuffix = "на ближайшие 3 дня";
       
@@ -744,7 +701,7 @@ export const Workspace = () => {
       } else if (studentStats.grade === "10 класс") {
         scheduledCount = 3;
         messageSuffix = "на ближайшие 3 дня (плановое повторение)";
-      } else { // 9 класс и другие
+      } else {
         scheduledCount = 2;
         messageSuffix = "на ближайшие 2 дня (мягкий режим)";
       }
@@ -838,8 +795,8 @@ export const Workspace = () => {
           ...(studentStats.recentActivity || []).slice(0, 4),
         ],
       });
-    } catch (e) {
-      console.error(e);
+    } catch {
+      console.error("Ошибка при обновлении прогресса по целям");
     }
   };
 
@@ -871,21 +828,13 @@ export const Workspace = () => {
   if (loading) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden font-sans select-none">
-        {/* Background ambient blobs */}
         <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
         <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-purple-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
 
-        {/* Center content container */}
         <div className="relative flex flex-col items-center z-10">
-          {/* Outer glowing rings */}
           <div className="relative w-28 h-28 flex items-center justify-center">
-            {/* Outer spinning ring */}
             <div className="absolute inset-0 rounded-full border-[3px] border-indigo-500/20 border-t-indigo-500 border-r-indigo-500 animate-spin [animation-duration:1.2s] premium-glow"></div>
-            
-            {/* Inner counter-spinning ring */}
             <div className="absolute inset-2.5 rounded-full border-[3px] border-purple-500/10 border-b-purple-500 border-l-purple-500 animate-spin [animation-duration:1.8s] [animation-direction:reverse]"></div>
-            
-            {/* Center glowing badge with graduation cap icon */}
             <div className="absolute inset-5.5 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center premium-glow-cyan shadow-indigo-500/40">
               <svg className="w-8 h-8 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
@@ -894,7 +843,6 @@ export const Workspace = () => {
             </div>
           </div>
 
-          {/* Text block */}
           <div className="mt-8 flex flex-col items-center text-center px-4">
             <h2 className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-purple-200">
               EduTrack <span className="text-indigo-400">AI</span>
@@ -907,105 +855,112 @@ export const Workspace = () => {
             </p>
           </div>
 
-          {/* Tiny progress/scanning bar */}
           <div className="h-[2px] w-36 bg-slate-900 rounded-full overflow-hidden mt-6 relative">
-            <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full animate-progress-width"></div>
+            <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-indigo-50 to-cyan-400 rounded-full animate-progress-width"></div>
           </div>
         </div>
       </div>
     );
   }
 
-  if (studentStats && !studentStats.profileCombination) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-6 sm:p-12 font-sans relative overflow-hidden">
-        {/* Decorative background gradients */}
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/10 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-600/10 rounded-full blur-[120px]"></div>
-        
-        <header className="relative z-10 flex items-center justify-between w-full max-w-4xl mx-auto">
-          <div className="flex items-center gap-2 font-black text-xl tracking-tight">
-            <span className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-black shadow-sm">
-              E
-            </span>
-            EduTrack <span className="text-indigo-500">ЕНТ AI</span>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition"
-          >
-            Выйти
-          </button>
-        </header>
+  if (studentStats && !studentStats.hasPassedDiagnostic) {
+    if (onboardingStep === "select_combo") {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-6 sm:p-12 font-sans relative overflow-hidden">
+          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/10 rounded-full blur-[120px]"></div>
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-600/10 rounded-full blur-[120px]"></div>
+          
+          <header className="relative z-10 flex items-center justify-between w-full max-w-4xl mx-auto">
+            <div className="flex items-center gap-2 font-black text-xl tracking-tight">
+              <span className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-black shadow-sm">E</span>
+              EduTrack <span className="text-indigo-500">ЕНТ AI</span>
+            </div>
+            <button onClick={handleLogout} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition">Выйти</button>
+          </header>
 
-        <main className="relative z-10 max-w-4xl w-full mx-auto my-auto py-12 flex flex-col items-center text-center space-y-8">
-          <div className="space-y-3">
-            <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
-              Начало пути к 140 баллам
-            </span>
-            <h1 className="text-3xl sm:text-5xl font-black tracking-tight max-w-2xl mx-auto leading-tight">
-              Выбери своё направление ЕНТ
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-              На основе твоего выбора AI построит индивидуальный план занятий, расписание в календаре и сгенерирует задачи для тренировок.
-            </p>
-          </div>
+          <main className="relative z-10 max-w-4xl w-full mx-auto my-auto py-12 flex flex-col items-center text-center space-y-8">
+            <div className="space-y-3">
+              <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 px-3 py-1 rounded-full font-bold uppercase tracking-wider">Начало пути к 140 баллам</span>
+              <h1 className="text-3xl sm:text-5xl font-black tracking-tight max-w-2xl mx-auto leading-tight">Выбери своё направление ЕНТ</h1>
+              <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">На основе твоего выбора AI построит индивидуальный план занятий, расписание в календаре и сгенерирует задачи для тренировок.</p>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 w-full pt-4 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
-            {[
-              { name: "Математика – Физика", desc: "Инженерия, IT, Строительство", icon: "⚙️" },
-              { name: "Биология – Химия", desc: "Медицина, Биоинженерия, Экология", icon: "🧬" },
-              { name: "Математика – Информатика", desc: "Программирование, Анализ данных, IT", icon: "💻" },
-              { name: "География – Иностранный язык", desc: "Туризм, Международные отношения", icon: "🌍" },
-              { name: "Биология – География", desc: "Агрономия, Геология", icon: "🌱" },
-              { name: "Всемирная история – География", desc: "Геополитика, Регионоведение", icon: "🗺️" },
-              { name: "Всемирная история – Основы права", desc: "Юриспруденция, Правоохрана", icon: "⚖️" },
-              { name: "Казахский язык – Казахская литература", desc: "Филология, Журналистика", icon: "✍️" },
-              { name: "Русский язык – Русская литература", desc: "Русская филология, Педагогика", icon: "📚" },
-              { name: "Творческий экзамен", desc: "Дизайн, Искусство, Спорт", icon: "🎨" }
-            ].map((combo) => (
-              <button
-                key={combo.name}
-                onClick={() => setSelectedCombo(combo.name)}
-                className={`p-5 rounded-2xl border text-left transition-all duration-200 flex flex-col justify-between gap-3 group relative overflow-hidden ${
-                  selectedCombo === combo.name
-                    ? "bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10"
-                    : "bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60"
-                }`}
-              >
-                <div className="flex justify-between items-center w-full">
-                  <span className="text-2xl">{combo.icon}</span>
-                  {selectedCombo === combo.name && (
-                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
-                  )}
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm text-white">{combo.name}</h4>
-                  <p className="text-[11px] text-slate-400 mt-1">{combo.desc}</p>
-                </div>
-              </button>
-            ))}
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 w-full pt-4 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
+              {[
+                { name: "Математика – Физика", desc: "Инженерия, IT, Строительство", icon: "⚙️" },
+                { name: "Биология – Химия", desc: "Медицина, Биоинженерия, Экология", icon: "🧬" },
+                { name: "Математика – Информатика", desc: "Программирование, Анализ данных, IT", icon: "💻" },
+                { name: "География – Иностранный язык", desc: "Туризм, Международные отношения", icon: "🌍" },
+                { name: "Биология – География", desc: "Агрономия, Геология", icon: "🌱" },
+                { name: "Всемирная история – География", desc: "Геополитика, Регионоведение", icon: "🗺️" },
+                { name: "Всемирная история – Основы права", desc: "Юриспруденция, Правоохрана", icon: "⚖️" },
+                { name: "Казахский язык – Казахская литература", desc: "Филология, Журналистика", icon: "✍️" },
+                { name: "Русский язык – Русская литература", desc: "Русская филология, Педагогика", icon: "📚" },
+                { name: "Творческий экзамен", desc: "Дизайн, Искусство, Спорт", icon: "🎨" }
+              ].map((combo) => (
+                <button
+                  key={combo.name}
+                  disabled={onboardingSaving}
+                  onClick={() => setSelectedCombo(combo.name)}
+                  className={`p-5 rounded-2xl border text-left transition-all duration-200 flex flex-col justify-between gap-3 group relative overflow-hidden ${
+                    selectedCombo === combo.name
+                      ? "bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10"
+                      : "bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60"
+                  }`}
+                >
+                  <div className="flex justify-between items-center w-full">
+                    <span className="text-2xl">{combo.icon}</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-white">{combo.name}</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">{combo.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
 
-          <button
-            onClick={() => handleConfirmCombo(selectedCombo)}
-            disabled={!selectedCombo || onboardingSaving}
-            className={`w-full max-w-sm py-3.5 rounded-2xl text-xs font-black shadow-xl transition-all ${
-              selectedCombo && !onboardingSaving
-                ? "bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-[1.02]"
-                : "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60"
-            }`}
-          >
-            {onboardingSaving ? "Создание AI-программы..." : "Подтвердить и начать подготовку"}
-          </button>
-        </main>
+            <button
+              onClick={() => setOnboardingStep("diagnostic_test")}
+              disabled={!selectedCombo || onboardingSaving}
+              className={`w-full max-w-sm py-3.5 rounded-2xl text-xs font-black shadow-xl transition-all ${
+                selectedCombo && !onboardingSaving ? "bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-[1.02]" : "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60"
+              }`}
+            >
+              Перейти к диагностическому тесту
+            </button>
+          </main>
+          <footer className="text-center text-[10px] text-slate-500 relative z-10">EduTrack ЕНТ AI. Подготовка к Единому Национальному Тестированию.</footer>
+        </div>
+      );
+    }
 
-        <footer className="text-center text-[10px] text-slate-500 relative z-10">
-          EduTrack ЕНТ AI. Подготовка к Единому Национальному Тестированию.
-          <span className="block mt-1 font-bold text-indigo-500">Developed by Ivakin Daniil</span>
-        </footer>
-      </div>
-    );
+    if (onboardingStep === "diagnostic_test") {
+      return (
+        <MockExam
+          subject={selectedCombo}
+          examTitle="Стартовый диагностический тест (Анализ уровня знаний)"
+          userName={userName}
+          questionsCount={5}
+          timeLimit={15}
+          geminiKey={geminiKey}
+          onClose={() => setOnboardingStep("select_combo")}
+          onFinish={async (scorePercent) => {
+            setOnboardingStep("generating_plan");
+            await handleFinishDiagnostic(scorePercent, selectedCombo);
+          }}
+        />
+      );
+    }
+
+    if (onboardingStep === "generating_plan") {
+      return (
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-14 h-14 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+          <h2 className="text-xl font-black tracking-wide text-indigo-400 animate-pulse">ИИ рассчитывает персональную матрицу знаний...</h2>
+          <p className="text-xs text-slate-400 mt-2 max-w-xs leading-relaxed">Мы анализируем результаты твоей диагностики, заполняем адаптивный умный календарь и оптимизируем темы тренировок.</p>
+        </div>
+      );
+    }
   }
 
   if (activeExam) {
@@ -1115,7 +1070,6 @@ export const Workspace = () => {
 
   return (
     <div className="min-h-screen bg-slate-50/60 flex font-sans text-slate-900 w-full antialiased">
-      {/* САЙДБАР */}
       <aside className="w-64 bg-white border-r border-slate-200/60 p-6 flex flex-col justify-between hidden lg:flex sticky top-0 h-screen z-30">
         <div className="space-y-8">
           <div>
@@ -1123,9 +1077,7 @@ export const Workspace = () => {
               onClick={() => setActiveTab("dashboard")}
               className="flex items-center gap-2 font-black text-xl tracking-tight cursor-pointer"
             >
-              <span className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-black shadow-sm">
-                E
-              </span>
+              <span className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-black shadow-sm">E</span>
               EduTrack <span className="text-indigo-600">ЕНТ AI</span>
             </div>
             <div className="mt-2 flex flex-col gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-2 rounded-xl w-fit">
@@ -1179,15 +1131,10 @@ export const Workspace = () => {
         </div>
       </aside>
 
-      {/* КОНТЕНТ */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 border-b border-slate-200/60 bg-white px-8 flex items-center justify-between sticky top-0 z-20">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg">
-            {activeTab === "dashboard"
-              ? "Рабочая область"
-              : activeTab === "tasks"
-                ? "Тренажер"
-                : "Раздел"}
+            {activeTab === "dashboard" ? "Рабочая область" : activeTab === "tasks" ? "Тренажер" : "Раздел"}
           </span>
           <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-200/40 px-3 py-1.5 rounded-xl">
             <span className="text-xs font-bold text-slate-700">{userName}</span>
@@ -1195,69 +1142,46 @@ export const Workspace = () => {
         </header>
 
         <div className="p-8 space-y-8 max-w-6xl w-full mx-auto flex-1">
-          {/* ── ДАШБОРД ── */}
           {activeTab === "dashboard" && (
             <>
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
-                  <h1 className="text-2xl font-black text-slate-900">
-                    Твоя траектория подготовки к ЕНТ
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Здесь собираются личные показатели ИИ-тренировок.
-                  </p>
+                  <h1 className="text-2xl font-black text-slate-900">Твоя траектория подготовки к ЕНТ</h1>
+                  <p className="text-xs text-slate-500 mt-1">Здесь собираются личные показатели ИИ-тренировок.</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="bg-white border border-indigo-500/15 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
                     <div className="text-lg">🎓</div>
                     <div>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">
-                        Направление ЕНТ
-                      </p>
-                      <p className="text-xs font-black text-slate-800 mt-0.5">
-                        {studentStats?.profileCombination}
-                      </p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Направление ЕНТ</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.profileCombination}</p>
                     </div>
                   </div>
                   <div className="bg-white border border-emerald-500/15 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
                     <div className="text-lg">🔥</div>
                     <div>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">
-                        Ударный режим
-                      </p>
-                      <p className="text-xs font-black text-slate-800 mt-0.5">
-                        {studentStats?.streakDays || 0} дней
-                      </p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Ударный режим</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.streakDays || 0} дней</p>
                     </div>
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm flex flex-col justify-between min-h-[200px]">
-                  <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider">
-                    Готовность к экзамену
-                  </h3>
+                  <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider">Готовность к экзамену</h3>
                   <div className="text-center my-2">
-                    <p className="text-5xl font-black text-indigo-600">
-                      {studentStats?.overallProgress || 0}%
-                    </p>
-                    <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">
-                      Цель: {studentStats?.targetScore || 140} баллов
-                    </p>
+                    <p className="text-5xl font-black text-indigo-600">{studentStats?.overallProgress || 0}%</p>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Цель: {studentStats?.targetScore || 140} баллов</p>
                   </div>
                   <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                     <div
                       className="bg-indigo-600 h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${studentStats?.overallProgress || 0}%`,
-                      }}
+                      style={{ width: `${studentStats?.overallProgress || 0}%` }}
                     ></div>
                   </div>
                 </div>
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm md:col-span-2">
-                  <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight mb-4">
-                    Ежедневные задачи плана
-                  </h3>
+                  <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight mb-4">Ежедневные задачи плана</h3>
                   <div className="space-y-4">
                     {studentStats?.weeklyGoals?.map((goal) => (
                       <div
@@ -1267,16 +1191,12 @@ export const Workspace = () => {
                       >
                         <div className="flex justify-between text-xs font-semibold">
                           <span>{goal.text}</span>
-                          <span className="text-slate-400 font-mono">
-                            {goal.current}/{goal.max}
-                          </span>
+                          <span className="text-slate-400 font-mono">{goal.current}/{goal.max}</span>
                         </div>
                         <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                           <div
                             className={`h-full ${goal.color} rounded-full`}
-                            style={{
-                              width: `${Math.min((goal.current / goal.max) * 100, 100)}%`,
-                            }}
+                            style={{ width: `${Math.min((goal.current / goal.max) * 100, 100)}%` }}
                           ></div>
                         </div>
                       </div>
@@ -1286,28 +1206,16 @@ export const Workspace = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm md:col-span-2 space-y-4">
-                  <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
-                    🎯 Темы для закрепления
-                  </h3>
+                  <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">🎯 Темы для закрепления</h3>
                   {studentStats?.attentionNeeded?.length === 0 ? (
-                    <p className="text-xs text-slate-400 py-4">
-                      Отличная работа! Слабых мест в тренировках пока не
-                      обнаружено.
-                    </p>
+                    <p className="text-xs text-slate-400 py-4">Отличная работа! Слабых мест в тренировках пока не обнаружено.</p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {studentStats?.attentionNeeded?.map((item) => (
-                        <div
-                          key={item.id}
-                          className="border border-slate-100 bg-slate-50/50 p-4 rounded-2xl flex flex-col justify-between gap-4"
-                        >
+                      {studentStats?.attentionNeeded?.map((item, idx) => (
+                        <div key={idx} className="border border-slate-100 bg-slate-50/50 p-4 rounded-2xl flex flex-col justify-between gap-4">
                           <div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase">
-                              {item.subject}
-                            </p>
-                            <h4 className="font-bold text-slate-800 text-sm mt-1">
-                              {item.topic}
-                            </h4>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">{item.subject}</p>
+                            <h4 className="font-bold text-slate-800 text-sm mt-1">{item.topic}</h4>
                           </div>
                           <button
                             onClick={() => {
@@ -1325,19 +1233,10 @@ export const Workspace = () => {
                   )}
                 </div>
                 <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-6 rounded-3xl text-white flex flex-col justify-between shadow-xl">
-                  <span className="text-[9px] bg-white/20 border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase w-fit">
-                    Рекомендация ИИ
-                  </span>
-                  <h3 className="text-xl font-black mt-4 leading-tight">
-                    {nextStep.title}
-                  </h3>
-                  <p className="text-xs text-indigo-100/80 mt-2">
-                    {nextStep.desc}
-                  </p>
-                  <button
-                    onClick={nextStep.action}
-                    className="w-full bg-white text-indigo-600 py-3 rounded-xl text-xs font-black shadow-md mt-6 hover:bg-slate-50 transition"
-                  >
+                  <span className="text-[9px] bg-white/20 border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase w-fit">Рекомендация ИИ</span>
+                  <h3 className="text-xl font-black mt-4 leading-tight">{nextStep.title}</h3>
+                  <p className="text-xs text-indigo-100/80 mt-2">{nextStep.desc}</p>
+                  <button onClick={nextStep.action} className="w-full bg-white text-indigo-600 py-3 rounded-xl text-xs font-black shadow-md mt-6 hover:bg-slate-50 transition">
                     {nextStep.btnText}
                   </button>
                 </div>
@@ -1345,22 +1244,15 @@ export const Workspace = () => {
             </>
           )}
 
-          {/* ── ИИ-ТРЕНАЖЕР ── */}
           {activeTab === "tasks" && (
             <div className="space-y-6 max-w-4xl mx-auto">
               <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm flex justify-between items-center">
                 <div>
-                  <h1 className="text-2xl font-black text-slate-900">
-                    🤖 Персональный ИИ-Тренажер
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Бесконечные умные задачи по кодификатору ЕНТ.
-                  </p>
+                  <h1 className="text-2xl font-black text-slate-900">🤖 Персональный ИИ-Тренажер</h1>
+                  <p className="text-xs text-slate-500 mt-1">Бесконечные умные задачи по кодификатору ЕНТ.</p>
                 </div>
                 {!geminiKey && (
-                  <span className="text-[10px] bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold">
-                    ✨ AI Free Mode
-                  </span>
+                  <span className="text-[10px] bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold">✨ AI Free Mode</span>
                 )}
               </div>
 
@@ -1368,9 +1260,7 @@ export const Workspace = () => {
                 <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase">
-                        1. Предмет
-                      </label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase">1. Предмет</label>
                       <div className="flex flex-col gap-2">
                         {(studentStats?.subjectsMastery || []).map((sub) => {
                           let icon = "📚";
@@ -1390,8 +1280,7 @@ export const Workspace = () => {
                               key={sub.id}
                               onClick={() => {
                                 setTasksSubject(sub.name);
-                                const topics = getTopicsForSubject(sub.name);
-                                setTasksTopic(topics[0]);
+                                setTasksTopic(getTopicsForSubject(sub.name)[0]);
                               }}
                               className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-xs font-bold transition-all text-left ${activeTasksSubject === sub.name ? "bg-indigo-50 border-indigo-500 text-indigo-700" : "bg-slate-50 text-slate-600"}`}
                             >
@@ -1402,9 +1291,7 @@ export const Workspace = () => {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase">
-                        2. Тема
-                      </label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase">2. Тема</label>
                       <div className="flex flex-col gap-2">
                         {getTopicsForSubject(activeTasksSubject).map((topic) => (
                           <button
@@ -1418,9 +1305,7 @@ export const Workspace = () => {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase">
-                        3. Сложность
-                      </label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase">3. Сложность</label>
                       <div className="flex flex-col gap-2">
                         {["Легкий", "Средний", "Сложный"].map((diff) => (
                           <button
@@ -1434,10 +1319,7 @@ export const Workspace = () => {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={handleGenerateTask}
-                    className="w-full bg-indigo-600 text-white py-3.5 rounded-2xl text-xs font-black shadow-lg hover:bg-indigo-700 transition"
-                  >
+                  <button onClick={handleGenerateTask} className="w-full bg-indigo-600 text-white py-3.5 rounded-2xl text-xs font-black shadow-lg hover:bg-indigo-700 transition">
                     Сгенерировать задачу
                   </button>
                 </div>
@@ -1451,19 +1333,13 @@ export const Workspace = () => {
 
               {generatedTask && !tasksGenerating && (
                 <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6">
-                  <h3 className="text-lg font-black text-slate-900">
-                    {generatedTask.question}
-                  </h3>
+                  <h3 className="text-lg font-black text-slate-900">{generatedTask.question}</h3>
                   {generatedTask.formula && (
                     <div className="p-4 bg-slate-900 text-center rounded-2xl overflow-x-auto">
                       {safeBlockMath(generatedTask.formula)}
                     </div>
                   )}
-                  {generatedTask.sub && (
-                    <p className="text-sm text-slate-500 font-medium">
-                      {generatedTask.sub}
-                    </p>
-                  )}
+                  {generatedTask.sub && <p className="text-sm text-slate-500 font-medium">{generatedTask.sub}</p>}
                   <div className="space-y-3">
                     {generatedTask.options.map((opt, idx) => (
                       <button
@@ -1496,17 +1372,11 @@ export const Workspace = () => {
                     </button>
                   ) : (
                     <div className="space-y-4">
-                      <div
-                        className={`p-4 rounded-2xl text-xs font-bold ${isTaskCorrect ? "bg-emerald-50 text-emerald-900 border border-emerald-200" : "bg-rose-50 text-rose-900 border border-rose-200"}`}
-                      >
-                        {isTaskCorrect
-                          ? "🎉 Правильно! +150 опыта начислено."
-                          : "❌ Ошибка. Изучите разбор решения ниже:"}
+                      <div className={`p-4 rounded-2xl text-xs font-bold ${isTaskCorrect ? "bg-emerald-50 text-emerald-900 border border-emerald-200" : "bg-rose-50 text-rose-900 border border-rose-200"}`}>
+                        {isTaskCorrect ? "🎉 Правильно! +150 опыта начислено." : "❌ Ошибка. Изучите разбор решения ниже:"}
                       </div>
                       <div className="p-5 bg-slate-50 rounded-2xl text-xs leading-relaxed whitespace-pre-line border border-slate-200">
-                        <strong>Разбор решения:</strong>
-                        <br />
-                        {generatedTask.explanation}
+                        <strong>Разбор решения:</strong><br />{generatedTask.explanation}
                       </div>
                       <button
                         onClick={() => {
@@ -1526,7 +1396,6 @@ export const Workspace = () => {
             </div>
           )}
 
-          {/* ── ПЛАН ПОДГОТОВКИ ── */}
           {activeTab === "exam_prep" && (
             <ExamPrep
               studentStats={studentStats}
@@ -1540,25 +1409,15 @@ export const Workspace = () => {
             />
           )}
 
-
-
-          {/* ── РАСПИСАНИЕ ── */}
           {activeTab === "calendar" && (
             <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto">
               <div className="flex justify-between items-center">
                 <div>
-                  <h1 className="text-2xl font-black text-slate-900">
-                    📅 Интерактивное расписание
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Управляйте планом занятий и дедлайнов.
-                  </p>
+                  <h1 className="text-2xl font-black text-slate-900">📅 Интерактивное расписание</h1>
+                  <p className="text-xs text-slate-500 mt-1">Управляйте планом занятий и дедлайнов.</p>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    onClick={handleAiAutoSchedule}
-                    className="bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm"
-                  >
+                  <button onClick={handleAiAutoSchedule} className="bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm">
                     🤖 AI Планировщик ЕНТ
                   </button>
                   <button
@@ -1573,14 +1432,9 @@ export const Workspace = () => {
                 </div>
               </div>
               {isAddEventOpen && (
-                <form
-                  onSubmit={handleAddCalendarEvent}
-                  className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 max-w-md"
-                >
+                <form onSubmit={handleAddCalendarEvent} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 max-w-md">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase">
-                      Название события
-                    </label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase">Название события</label>
                     <input
                       type="text"
                       required
@@ -1592,9 +1446,7 @@ export const Workspace = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase">
-                        Дата
-                      </label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase">Дата</label>
                       <input
                         type="date"
                         required
@@ -1604,9 +1456,7 @@ export const Workspace = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase">
-                        Время
-                      </label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase">Время</label>
                       <input
                         type="time"
                         required
@@ -1617,19 +1467,8 @@ export const Workspace = () => {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold"
-                    >
-                      Создать
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddEventOpen(false)}
-                      className="bg-slate-200 text-slate-700 px-4 py-1.5 rounded-xl text-xs font-bold"
-                    >
-                      Отмена
-                    </button>
+                    <button type="submit" className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Создать</button>
+                    <button type="button" onClick={() => setIsAddEventOpen(false)} className="bg-slate-200 text-slate-700 px-4 py-1.5 rounded-xl text-xs font-bold">Отмена</button>
                   </div>
                 </form>
               )}
@@ -1640,30 +1479,18 @@ export const Workspace = () => {
                     const d = new Date();
                     d.setDate(d.getDate() + i);
                     const dateStr = d.toISOString().split("T")[0];
-                    const dayEvents = calendarEvents.filter(
-                      (ev) => ev.date === dateStr,
-                    );
+                    const dayEvents = calendarEvents.filter((ev) => ev.date === dateStr);
                     return (
-                      <div
-                        key={i}
-                        className="border border-slate-100 p-4 rounded-2xl bg-slate-50/50 min-h-[160px]"
-                      >
+                      <div key={i} className="border border-slate-100 p-4 rounded-2xl bg-slate-50/50 min-h-[160px]">
                         <p className="text-xs font-bold text-slate-700 border-b pb-1 mb-2">
                           {weekdays[d.getDay()]} {d.getDate()}
                         </p>
                         <div className="space-y-1.5">
                           {dayEvents.map((ev) => (
-                            <div
-                              key={ev.id}
-                              className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-700 p-1.5 rounded-md flex flex-col justify-between"
-                            >
+                            <div key={ev.id} className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-700 p-1.5 rounded-md flex flex-col justify-between">
                               <div>
-                                <span className="font-mono block opacity-70">
-                                  {ev.time}
-                                </span>
-                                <span className="font-bold block truncate" title={ev.title}>
-                                  {ev.title}
-                                </span>
+                                <span className="font-mono block opacity-70">{ev.time}</span>
+                                <span className="font-bold block truncate" title={ev.title}>{ev.title}</span>
                               </div>
                               {ev.subject && ev.topic && (
                                 <button
@@ -1679,11 +1506,7 @@ export const Workspace = () => {
                               )}
                             </div>
                           ))}
-                          {dayEvents.length === 0 && (
-                            <p className="text-[9px] text-slate-300 italic pt-2">
-                              Свободно
-                            </p>
-                          )}
+                          {dayEvents.length === 0 && <p className="text-[9px] text-slate-300 italic pt-2">Свободно</p>}
                         </div>
                       </div>
                     );
@@ -1693,51 +1516,29 @@ export const Workspace = () => {
             </div>
           )}
 
-          {/* ── АНАЛИТИКА ── */}
           {activeTab === "progress" && (
             <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto">
-              <h1 className="text-2xl font-black text-slate-900">
-                📈 Сводная аналитика успеваемости
-              </h1>
+              <h1 className="text-2xl font-black text-slate-900">📈 Сводная аналитика успеваемости</h1>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {studentStats?.subjectsMastery?.map((subject) => (
-                  <div
-                    key={subject.id}
-                    className="border border-slate-100 p-4 rounded-2xl space-y-2"
-                  >
-                    <p className="text-xs font-bold text-slate-800">
-                      {subject.name}
-                    </p>
+                {studentStats?.subjectsMastery?.map((subject, idx) => (
+                  <div key={idx} className="border border-slate-100 p-4 rounded-2xl space-y-2">
+                    <p className="text-xs font-bold text-slate-800">{subject.name}</p>
                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${subject.color}`}
-                        style={{ width: `${subject.progress}%` }}
-                      ></div>
+                      <div className={`h-full ${subject.color}`} style={{ width: `${subject.progress}%` }}></div>
                     </div>
-                    <p className="text-[10px] text-slate-400 uppercase font-mono">
-                      Прогресс: {subject.progress}%
-                    </p>
+                    <p className="text-[10px] text-slate-400 uppercase font-mono">Прогресс: {subject.progress}%</p>
                   </div>
                 ))}
               </div>
               {studentStats?.attentionRequired?.length > 0 && (
                 <div className="border border-red-100 bg-red-50/10 p-5 rounded-2xl space-y-3">
-                  <h3 className="font-black text-red-600 text-sm uppercase tracking-wider">
-                    🚨 Проблемы из проверочных школьных работ:
-                  </h3>
+                  <h3 className="font-black text-red-600 text-sm uppercase tracking-wider">🚨 Проблемы из проверочных школьных работ:</h3>
                   <div className="space-y-2">
                     {studentStats.attentionRequired.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="flex justify-between items-center bg-white p-3 rounded-xl border border-red-50 text-xs"
-                      >
+                      <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-xl border border-red-50 text-xs">
                         <div>
-                          <span className="font-bold text-slate-800">
-                            {item.topic}
-                          </span>
-                          <p className="text-[10px] text-slate-400">
-                            {item.subject}
-                          </p>
+                          <span className="font-bold text-slate-800">{item.topic}</span>
+                          <p className="text-[10px] text-slate-400">{item.subject}</p>
                         </div>
                         <button
                           onClick={() => {
@@ -1763,34 +1564,20 @@ export const Workspace = () => {
         </div>
       </div>
 
-      {/* МОДАЛКА НАСТРОЕК */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl text-slate-800 space-y-5 relative">
-            <button
-              onClick={() => setIsSettingsOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1"
-            >
-              ✕
-            </button>
+            <button onClick={() => setIsSettingsOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1">✕</button>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl">
-                ⚙️
-              </div>
+              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl">⚙️</div>
               <div>
-                <h3 className="font-black text-sm uppercase tracking-wider">
-                  Настройки EduTech AI
-                </h3>
-                <p className="text-[10px] text-slate-400">
-                  Персонализация и подключение ИИ
-                </p>
+                <h3 className="font-black text-sm uppercase tracking-wider">Настройки EduTech AI</h3>
+                <p className="text-[10px] text-slate-400">Персонализация и подключение ИИ</p>
               </div>
             </div>
             <div className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                  API-ключ Gemini
-                </label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">API-ключ Gemini</label>
                 <input
                   type="password"
                   placeholder="AIzaSy..."
@@ -1804,21 +1591,8 @@ export const Workspace = () => {
               </div>
               <div className="bg-indigo-50/50 border border-indigo-100/60 p-4 rounded-2xl text-[10px] leading-relaxed text-indigo-900 space-y-1">
                 <p className="font-bold">Как получить ключ бесплатно?</p>
-                <p>
-                  1. Перейдите в{" "}
-                  <a
-                    href="https://aistudio.google.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-bold"
-                  >
-                    Google AI Studio
-                  </a>
-                  .
-                </p>
-                <p>
-                  2. Авторизуйтесь и нажмите <strong>«Get API Key»</strong>.
-                </p>
+                <p>1. Перейдите в <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="underline font-bold">Google AI Studio</a>.</p>
+                <p>2. Авторизуйтесь и нажмите <strong>«Get API Key»</strong>.</p>
                 <p>3. Скопируйте ключ и вставьте его в поле выше.</p>
               </div>
             </div>
@@ -1835,9 +1609,7 @@ export const Workspace = () => {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({
-                        contents: [
-                          { parts: [{ text: "Ответь ровно одним словом OK" }] },
-                        ],
+                        contents: [{ parts: [{ text: "Ответь ровно одним словом OK" }] }],
                       }),
                     },
                   )
@@ -1845,19 +1617,14 @@ export const Workspace = () => {
                       if (!res.ok) throw new Error();
                       return res.json();
                     })
-                    .then(() =>
-                      alert("Успешно! API-ключ проверен и готов к работе."),
-                    )
+                    .then(() => alert("Успешно! API-ключ проверен и готов к работе."))
                     .catch(() => alert("Ошибка проверки ключа."));
                 }}
                 className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-xs font-bold transition-all"
               >
                 Проверить
               </button>
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all"
-              >
+              <button onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all">
                 Сохранить
               </button>
             </div>

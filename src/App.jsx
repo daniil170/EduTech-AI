@@ -15,7 +15,6 @@ function App() {
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        // Show loading screen while syncing user document
         setLoading(true);
         const userDocRef = doc(db, "users", currentUser.uid);
 
@@ -35,6 +34,8 @@ function App() {
               daysToUnt: savedDaysToUnt ? parseInt(savedDaysToUnt, 10) : "",
               examType: "ЕНТ",
               profileCombination: "",
+              hasPassedDiagnostic: false,
+
               overallProgress: 0,
               targetScore: 140,
               streakDays: 0,
@@ -50,16 +51,14 @@ function App() {
               ],
 
               subjectsMastery: [],
-
               attentionRequired: [],
+              attentionNeeded: [],
 
               weeklyGoals: [
                 { id: 1, text: "Решить 50 задач по Алгебре", current: 0, max: 50, color: "bg-indigo-600" },
                 { id: 2, text: "Пробный тест по Истории Казахстана", current: 0, max: 1, color: "bg-emerald-500" },
                 { id: 3, text: "Практические занятия (ИИ)", current: 0, max: 30, color: "bg-amber-500", isTime: false }
               ],
-
-              attentionNeeded: [],
 
               examPrep: {
                 completedPercent: 0,
@@ -71,14 +70,16 @@ function App() {
                 recommendations: []
               },
               recentActivity: [
-                { id: "act-1", type: "Система", name: "Добро пожаловать в EduTrack AI! Начните подготовку, решив задачу в ИИ-Тренажере.", score: "+0 опыта", time: "Только что" }
+                { id: "act-1", type: "Система", name: "Добро пожаловать в EduTrack AI! Начните подготовку с прохождения диагностического теста.", score: "+0 опыта", time: "Только что" }
               ]
             });
           }
         } catch (err) {
-          console.error("Ошибка при проверке/создании документа пользователя:", err);
+          console.error("Ошибка при проверке/создании документа пользователя (возможно офлайн):", err);
+          // Не падаем, а позволяем приложению использовать локальный стейт или кэш Firebase
         }
 
+        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: выносим из try блока, чтобы загрузка гарантированно отключалась
         setUser(currentUser);
         setLoading(false);
         if (window.location.pathname === "/") {
@@ -101,21 +102,13 @@ function App() {
   if (loading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden font-sans select-none">
-        {/* Background ambient blobs */}
         <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
         <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-purple-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
 
-        {/* Center content container */}
         <div className="relative flex flex-col items-center z-10">
-          {/* Outer glowing rings */}
           <div className="relative w-28 h-28 flex items-center justify-center">
-            {/* Outer spinning ring */}
             <div className="absolute inset-0 rounded-full border-[3px] border-indigo-500/20 border-t-indigo-500 border-r-indigo-500 animate-spin [animation-duration:1.2s] premium-glow"></div>
-            
-            {/* Inner counter-spinning ring */}
             <div className="absolute inset-2.5 rounded-full border-[3px] border-purple-500/10 border-b-purple-500 border-l-purple-500 animate-spin [animation-duration:1.8s] [animation-direction:reverse]"></div>
-            
-            {/* Center glowing badge with graduation cap icon */}
             <div className="absolute inset-5.5 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center premium-glow-cyan shadow-indigo-500/40">
               <svg className="w-8 h-8 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
@@ -124,7 +117,6 @@ function App() {
             </div>
           </div>
 
-          {/* Text block */}
           <div className="mt-8 flex flex-col items-center text-center px-4">
             <h2 className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-purple-200">
               EduTrack <span className="text-indigo-400">AI</span>
@@ -137,9 +129,8 @@ function App() {
             </p>
           </div>
 
-          {/* Tiny progress/scanning bar */}
           <div className="h-[2px] w-36 bg-slate-900 rounded-full overflow-hidden mt-6 relative">
-            <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full animate-progress-width"></div>
+            <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-indigo-50 to-cyan-400 rounded-full animate-progress-width"></div>
           </div>
         </div>
       </div>
