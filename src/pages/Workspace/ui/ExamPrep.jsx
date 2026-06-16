@@ -1,303 +1,186 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { db } from "../../../app/providers/Firebase/firebase";
-import { collection, addDoc } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 
 export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => {
-  const subjects = studentStats?.subjectsMastery || [];
-  const [selectedSubjectState, setSelectedSubjectState] = useState("");
-  const selectedSubject = selectedSubjectState || subjects[0]?.name || "";
-  const [aiPlan, setAiPlan] = useState(null);
-  const [loadingAi, setLoadingAi] = useState(false);
-  const generateAiPlanForSubject = useCallback(async (abortController) => {
-    if (!selectedSubject) return;
+  const [loading, setLoading] = useState(false);
 
-    const currentSubjectName = selectedSubject;
-    const currentProgress = studentStats?.overallProgress || 0;
-    const attentionTopics = (studentStats?.attentionRequired || [])
-      .filter(item => item.subject === selectedSubject)
-      .map(item => item.topic)
-      .join(", ");
+  // Берём актуальные данные из пропсов (Firestore) или ставим пустые дефолты
+  const studyPlan = studentStats?.examPrep?.studyPlan || [];
+  const recommendations = studentStats?.examPrep?.recommendations || [];
+  const completedPercent = studentStats?.examPrep?.completedPercent || 0;
 
-    const studentGrade = studentStats?.grade || "11 класс";
-    const daysLeftText = studentStats?.daysToUnt ? ` (осталось дней до ЕНТ: ${studentStats.daysToUnt})` : "";
+  // Функция сохранения обновленного состояния плана обратно в Firebase
+  const savePlanToFirestore = async (updatedPlan, updatedRecs, nextPercent) => {
+    if (!user) return;
+    const userDocRef = doc(db, "users", user.uid);
+    try {
+      await updateDoc(userDocRef, {
+        "examPrep.studyPlan": updatedPlan,
+        "examPrep.recommendations": updatedRecs,
+        "examPrep.completedPercent": nextPercent
+      });
+    } catch (e) {
+      console.error("Ошибка сохранения плана подготовки в Firestore:", e);
+    }
+  };
 
-    // If geminiKey is not set, generate mock AI plan client-side (Pacing & Grade based)
+  // Живая генерация умного плана через ИИ
+  const handleGenerateAdvancedPlan = async () => {
     if (!geminiKey) {
-      setLoadingAi(true);
-      await new Promise(resolve => setTimeout(resolve, 1200)); // Simulating AI thinking delay
-
-      const getMockPlanForSubject = (subjectName) => {
-        switch (subjectName) {
-          case "Математика":
-            return {
-              predictiveGrade: studentGrade === "11-класс" ? "A" : "B",
-              masteryLevel: "68%",
-              topicToFocus: "Тригонометрические уравнения",
-              insightText: `Ученик показывает хорошие навыки в алгебре. Для ${studentGrade} рекомендуем сфокусироваться на тригонометрических уравнениях и неравенствах${studentStats?.daysToUnt ? `, так как до экзамена осталось всего ${studentStats.daysToUnt} дней` : ""}.`,
-              steps: [
-                { name: "Системы линейных уравнений", status: "completed", desc: "Закреплено на практике" },
-                { name: "Тригонометрические формулы приведения", status: "in_progress", desc: "Текущий фокус, разберите формулы" },
-                { name: "Логарифмические неравенства", status: "upcoming", desc: "Рекомендуется разобрать на следующей неделе" }
-              ]
-            };
-          case "Физика":
-            return {
-              predictiveGrade: "B",
-              masteryLevel: "52%",
-              topicToFocus: "Законы термодинамики",
-              insightText: `Механика усвоена на хорошем уровне. В рамках программы ${studentGrade} необходимо подтянуть законы идеального газа и изопроцессы.`,
-              steps: [
-                { name: "Кинематика и Динамика материальной точки", status: "completed", desc: "Пройдено без ошибок" },
-                { name: "Изопроцессы в идеальном газе", status: "in_progress", desc: "Текущий фокус" },
-                { name: "Электростатика и закон Кулона", status: "upcoming", desc: "Запланировано после термодинамики" }
-              ]
-            };
-          case "Биология":
-            return {
-              predictiveGrade: "A",
-              masteryLevel: "74%",
-              topicToFocus: "Законы Г. Менделя",
-              insightText: `Анатомия и зоология усвоены отлично. Переходите к разделу общей биологии и генетике в соответствии с планом для ${studentGrade}.`,
-              steps: [
-                { name: "Анатомия человека: Кровеносная система", status: "completed", desc: "Ошибок не обнаружено" },
-                { name: "Моногибридное и дигибридное скрещивание", status: "in_progress", desc: "Разберите первый и второй законы Менделя" },
-                { name: "Эволюционное учение Ч. Дарвина", status: "upcoming", desc: "Запланировано" }
-              ]
-            };
-          case "Химия":
-            return {
-              predictiveGrade: "B",
-              masteryLevel: "60%",
-              topicToFocus: "Классы органических соединений",
-              insightText: `Базовая неорганическая химия пройдена. Для сдачи ЕНТ на высокий балл сфокусируйтесь на реакциях органического синтеза.`,
-              steps: [
-                { name: "Периодический закон и свойства элементов", status: "completed", desc: "Ошибок не обнаружено" },
-                { name: "Углеводороды: гомологический ряд алканов", status: "in_progress", desc: "Текущий фокус" },
-                { name: "Аминокислоты и белки", status: "upcoming", desc: "Запланировано" }
-              ]
-            };
-          case "География":
-            return {
-              predictiveGrade: "A",
-              masteryLevel: "82%",
-              topicToFocus: "География материков и океанов",
-              insightText: "Высокий уровень знаний. Для закрепления материала повторите климатологию Южной Америки и экономическое районирование РК.",
-              steps: [
-                { name: "Политическая карта мира", status: "completed", desc: "Успешное тестирование" },
-                { name: "Климатические пояса Земли", status: "in_progress", desc: "Текущий фокус" },
-                { name: "Экономическая география Казахстана", status: "upcoming", desc: "Запланировано" }
-              ]
-            };
-          case "История Казахстана":
-            return {
-              predictiveGrade: "B",
-              masteryLevel: "70%",
-              topicToFocus: "Образование Казахского ханства",
-              insightText: `Отличные знания древней истории. Сфокусируйтесь на деталях образования ханства в XV веке и реформах ханов, это частая тема ЕНТ.`,
-              steps: [
-                { name: "Эпоха бронзы на территории Казахстана", status: "completed", desc: "Закреплено" },
-                { name: "Образование Казахского ханства при Керее и Жанибеке", status: "in_progress", desc: "Текущий фокус, выучите даты" },
-                { name: "Казахстан в годы Великой Отечественной войны", status: "upcoming", desc: "Запланировано" }
-              ]
-            };
-          default:
-            return {
-              predictiveGrade: "A",
-              masteryLevel: "65%",
-              topicToFocus: "Базовые понятия и терминология",
-              insightText: `Рекомендуется начать последовательное изучение разделов в соответствии с планом подготовки для ${studentGrade}.`,
-              steps: [
-                { name: "Введение в предмет", status: "completed", desc: "Материал усвоен" },
-                { name: "Основной раздел курса", status: "in_progress", desc: "Текущий фокус" },
-                { name: "Итоговое повторение разделов", status: "upcoming", desc: "Запланировано" }
-              ]
-            };
-        }
-      };
-
-      if (!abortController.signal.aborted) {
-        setAiPlan(getMockPlanForSubject(currentSubjectName));
-        setLoadingAi(false);
-      }
+      alert("Для интерактивного ИИ-планирования подключите API-ключ Gemini в настройках!");
       return;
     }
+    setLoading(true);
 
-    const prompt = `Сформируй краткий план подготовки и аналитику по предмету "${currentSubjectName}" для ученика ${studentGrade}${daysLeftText} (экзамен ЕНТ).
-Текущий общий прогресс ученика: ${currentProgress}%.
-Темы, в которых он недавно ошибся или которые требуют внимания: [${attentionTopics || "Нет критических ошибок, идет по базовому плану"}].
-
-Верни ответ строго в формате JSON (без markdown-разметки вроде \`\`\`json):
+    const subjects = studentStats?.subjectsMastery?.map(s => s.name) || ["История Казахстана"];
+    const prompt = `Ты — ведущий ИИ-методолог ЕНТ. Сформируй расширенный индивидуальный пошаговый план подготовки на основе предметов ученика: ${subjects.join(", ")}.
+Ответ верни строго в формате JSON без markdown-оберток (без \`\`\`json):
 {
-  "predictiveGrade": "прогнозируемая оценка латинской буквой (A, B, C, D) на основе успеваемости",
-  "masteryLevel": "процент освоения предмета (например, 75%)",
-  "topicToFocus": "одна самая приоритетная тема для отработки прямо сейчас",
-  "insightText": "аналитический разбор от ИИ в 2 предложения на русском языке: сильные стороны и на что нажать",
-  "steps": [
-    {"name": "Название темы 1", "status": "completed", "desc": "краткое пояснение (например, успешно закреплено)"},
-    {"name": "Название темы 2", "status": "in_progress", "desc": "текущий фокус"},
-    {"name": "Название темы 3", "status": "upcoming", "desc": "планируется далее"}
+  "studyPlan": [
+    {"id": "p-1", "name": "Глубокий разбор тригонометрических формул", "status": "upcoming", "date": "Срок: 3 дня", "subject": "${subjects[0]}"},
+    {"id": "p-2", "name": "Анализ исторических источников и дат", "status": "upcoming", "date": "Срок: 5 дней", "subject": "${subjects[1] || subjects[0]}"},
+    {"id": "p-3", "name": "Отработка систем логических уравнений", "status": "upcoming", "date": "Срок: 1 неделя", "subject": "${subjects[0]}"}
+  ],
+  "recommendations": [
+    "Сделай упор на решение задач повышенной сложности в тренажере",
+    "Повторяй конспекты по выходным для закрепления долгосрочной памяти"
   ]
 }`;
 
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abortController.signal,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
-
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" },
+          }),
+        }
+      );
       if (!response.ok) throw new Error();
       const data = await response.json();
-      const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+      let cleanText = data.candidates[0].content.parts[0].text;
+      cleanText = cleanText.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
       
-      if (!abortController.signal.aborted) {
-        setAiPlan(parsed);
-      }
-    } catch (err) {
-      if (err.name !== "AbortError" && !abortController.signal.aborted) {
-        console.error("Ошибка ИИ при генерации плана:", err);
-        setAiPlan({
-          predictiveGrade: "B",
-          masteryLevel: `${currentProgress}%`,
-          topicToFocus: "Общее повторение",
-          insightText: "Подключите Gemini API или проверьте соединение, чтобы ИИ составил глубокую аналитику.",
-          steps: [{ name: "Базовый модуль программы", status: "in_progress", desc: "Требует генерации ИИ" }]
-        });
-      }
-    } finally {
-      if (!abortController.signal.aborted) {
-        setLoadingAi(false);
-      }
-    }
-  }, [geminiKey, selectedSubject, studentStats]);
-
-  useEffect(() => {
-    if (!selectedSubject) return;
-    
-    const abortController = new AbortController();
-    
-    const startFetch = async () => {
-      setLoadingAi(true);
-      await generateAiPlanForSubject(abortController);
-    };
-
-    startFetch();
-
-    return () => {
-      abortController.abort();
-    };
-  }, [generateAiPlanForSubject, selectedSubject]);
-
-  const handleScheduleWithAi = async (stepName) => {
-    if (!user) {
-      alert("Пользователь не авторизован.");
-      return;
-    }
-    
-    try {
-      const todayStr = new Date().toISOString().split("T")[0];
+      const result = JSON.parse(cleanText);
       
-      await addDoc(collection(db, "calendar"), {
-        title: `ИИ Занятие: ${stepName}`,
-        subject: selectedSubject,
-        topic: stepName,
-        time: "16:00",
-        date: todayStr,
-        studentId: user.uid,
-        createdAt: new Date().toISOString()
-      });
+      // Намертво сохраняем в базу данных, стейт обновится автоматически через пропсы
+      await savePlanToFirestore(result.studyPlan, result.recommendations, 0);
 
-      alert(`🤖 ИИ успешно добавил тему "${stepName}" в твое расписание на сегодня! Проверь вкладку "Расписание".`);
     } catch (e) {
-      console.error("Ошибка добавления ИИ-плана в календарь:", e);
-      alert("Произошла ошибка при сохранении занятия в календарь.");
+      console.error(e);
+      alert("Не удалось сгенерировать план. Проверьте API-ключ.");
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Переключение статуса шага (Выполнено / Предстоит)
+  const toggleStepStatus = async (stepId) => {
+    const updatedPlan = studyPlan.map(step => {
+      if (step.id === stepId) {
+        return { ...step, status: step.status === "completed" ? "upcoming" : "completed" };
+      }
+      return step;
+    });
+
+    const completedCount = updatedPlan.filter(s => s.status === "completed").length;
+    const nextPercent = Math.round((completedCount / updatedPlan.length) * 100);
+    
+    // Отправляем изменения на сервер, onSnapshot поменяет пропсы сверху, и интерфейс перерендерится
+    await savePlanToFirestore(updatedPlan, recommendations, nextPercent);
+  };
+
   return (
-    <div className="space-y-8 pb-12">
-      <div>
-        <h1 className="text-2xl font-black text-slate-900">🎓 Персональный ИИ-План Экзаменов</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Этот раздел полностью контролируется ИИ. Он анализирует твои ошибки и выстраивает расписание и траекторию к баллам на лету.
-        </p>
+    <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto font-sans text-slate-900">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b pb-4 border-slate-100">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900">🎓 Персональный ИИ-План Подготовки</h1>
+          <p className="text-xs text-slate-500 mt-1">Пошаговый трек распределения тем кодификатора ЕНТ.</p>
+        </div>
+        <button
+          onClick={handleGenerateAdvancedPlan}
+          disabled={loading}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md transition-all whitespace-nowrap"
+        >
+          {loading ? "Пересчет матрицы..." : "🤖 Перестроить ИИ-План"}
+        </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 bg-slate-100 p-1.5 rounded-2xl w-fit border border-slate-200/40">
-        {subjects.map(sub => (
-          <button
-            key={sub.id}
-            onClick={() => { setSelectedSubjectState(sub.name); setAiPlan(null); }}
-            className={`px-5 py-2 rounded-xl text-xs font-bold transition-all ${selectedSubject === sub.name ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-white/50"}`}
-          >
-            {sub.name}
-          </button>
-        ))}
-      </div>
-
-      {!geminiKey && (
-        <div className="p-3.5 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 text-indigo-700 rounded-2xl text-xs flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <span>✨</span>
-            <strong>Режим EduTrack AI Free:</strong> ИИ-помощник работает в демонстрационном режиме бесплатно и без ограничений.
-          </span>
+      {loading ? (
+        <div className="py-12 text-center text-xs text-slate-400 font-medium animate-pulse">
+          Нейросеть анализирует вашу успеваемость и собирает дорожную карту...
         </div>
-      )}
-
-      {loadingAi && (
-        <div className="p-12 bg-white border rounded-3xl text-center text-xs text-slate-400 animate-pulse">
-          🤖 ИИ анализирует вашу успеваемость и собирает актуальный роадмап...
-        </div>
-      )}
-
-      {aiPlan && !loadingAi && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          <div className="lg:col-span-5 bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm space-y-6">
-            <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight border-b pb-3">Маршрут ИИ-Обучения</h3>
-            
-            <div className="relative pl-6 space-y-6">
-              <div className="absolute left-[9px] top-2 bottom-2 w-0.5 border-l-2 border-dashed border-slate-200"></div>
-              {aiPlan.steps?.map((step, idx) => (
-                <div key={idx} className="relative group text-xs">
-                  <div className="absolute -left-[23px] top-0.5 w-4 h-4 rounded-full bg-white border-2 border-indigo-600 flex items-center justify-center">
-                    {step.status === "completed" && <div className="w-2 h-2 rounded-full bg-emerald-500"></div>}
-                    {step.status === "in_progress" && <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></div>}
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Список шагов */}
+          <div className="md:col-span-2 space-y-3">
+            <h3 className="font-black text-sm text-slate-800 uppercase tracking-tight mb-2">Дорожная карта занятий</h3>
+            {studyPlan.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-4">План пуст. Нажмите кнопку выше, чтобы ИИ сгенерировал персональные шаги.</p>
+            ) : (
+              studyPlan.map((step) => (
+                <div
+                  key={step.id}
+                  className={`p-4 rounded-2xl border transition flex items-center justify-between gap-4 ${
+                    step.status === "completed" ? "bg-emerald-50/40 border-emerald-200" : "bg-slate-50/50 border-slate-200/60"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={step.status === "completed"}
+                      onChange={() => toggleStepStatus(step.id)}
+                      className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <div>
+                      <h4 className={`text-xs font-bold ${step.status === "completed" ? "line-through text-slate-400" : "text-slate-800"}`}>
+                        {step.name}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">{step.date}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-bold text-slate-800">{step.name}</h4>
-                    <p className="text-slate-400 mt-0.5 text-[11px]">{step.desc}</p>
-                    {step.status !== "completed" && (
-                      <button 
-                        onClick={() => handleScheduleWithAi(step.name)}
-                        className="text-[10px] text-indigo-600 font-bold hover:underline mt-1 block text-left"
-                      >
-                        🗓️ Назначить ИИ-урок в календарь
-                      </button>
-                    )}
-                  </div>
+
+                  {step.status !== "completed" && (
+                    <button
+                      onClick={() => onStartPractice(step.name, step.subject || "Математика")}
+                      className="bg-white border border-slate-200 text-slate-700 hover:text-indigo-600 hover:border-indigo-400 px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition"
+                    >
+                      Отработать
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
+              ))
+            )}
           </div>
 
-          <div className="lg:col-span-7 space-y-6">
-            <div className="bg-slate-900 text-white p-8 rounded-3xl space-y-4 shadow-xl relative overflow-hidden">
-              <span className="text-[9px] bg-indigo-500/30 text-indigo-300 border border-indigo-500/20 px-2.5 py-1 rounded-full font-bold uppercase">Predictive AI Engine</span>
-              <h2 className="text-2xl font-black">Прогноз ИИ: <span className="text-indigo-400 font-mono">{aiPlan.predictiveGrade}</span> (Освоение: {aiPlan.masteryLevel})</h2>
-              <p className="text-xs text-slate-300 leading-relaxed font-medium">{aiPlan.insightText}</p>
-              
-              <div className="pt-4 flex gap-3">
-                <button
-                  onClick={() => onStartPractice && onStartPractice(aiPlan.topicToFocus, selectedSubject)}
-                  className="bg-white text-slate-900 px-5 py-2.5 rounded-xl text-xs font-black shadow-md hover:bg-slate-100 transition-all"
-                >
-                  🚀 Открыть тренажер: {aiPlan.topicToFocus}
-                </button>
+          {/* Статистика и ИИ-рекомендации */}
+          <div className="space-y-6">
+            <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800">
+              <h3 className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">Выполнение плана</h3>
+              <p className="text-3xl font-black text-indigo-400 mt-2">{completedPercent}%</p>
+              <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-3">
+                <div className="bg-indigo-400 h-full transition-all duration-500" style={{ width: `${completedPercent}%` }}></div>
               </div>
+            </div>
+
+            <div className="border border-slate-200 p-5 rounded-2xl bg-slate-50/30">
+              <h3 className="font-black text-xs text-slate-800 uppercase tracking-tight mb-3">Советы тьютора</h3>
+              {recommendations.length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic">Рекомендации появятся после генерации плана.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {recommendations.map((rec, i) => (
+                    <li key={i} className="text-[11px] text-slate-600 leading-relaxed flex items-start gap-2 font-medium">
+                      <span className="text-indigo-500 mt-0.5">•</span>
+                      <span>{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
