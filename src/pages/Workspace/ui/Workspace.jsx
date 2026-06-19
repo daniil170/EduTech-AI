@@ -1583,7 +1583,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                   {studentStats?.examType || "ЕНТ"}
                 </p>
               </div>
-              {studentStats?.daysToUnt && (
+              {!!studentStats?.daysToUnt && (
                 <div className="text-[9px] text-indigo-600 font-bold bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/40">
                   🗓️ До ЕНТ: {studentStats.daysToUnt} дн.
                 </div>
