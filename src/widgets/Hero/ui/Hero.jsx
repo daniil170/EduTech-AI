@@ -1,4 +1,8 @@
-export const Hero = ({ onAuthClick }) => {
+import { useNavigate } from "react-router-dom";
+
+export const Hero = ({ onAuthClick, user }) => {
+  const navigate = useNavigate();
+
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-indigo-50 via-purple-50 to-white pt-24 pb-12 sm:pt-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
@@ -17,19 +21,30 @@ export const Hero = ({ onAuthClick }) => {
 
         {/* Кнопки действия */}
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <button 
-            onClick={onAuthClick}
-            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-base font-semibold shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5"
-          >
-            Начать подготовку к ЕНТ
-          </button>
-          
-          <button 
-            onClick={onAuthClick}
-            className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-8 py-4 rounded-2xl text-base font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
-          >
-            <span>▶</span> Смотреть демо
-          </button>
+          {user ? (
+            <button 
+              onClick={() => navigate("/workspace")}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-base font-bold shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5 cursor-pointer"
+            >
+              Перейти в личный кабинет 🚀
+            </button>
+          ) : (
+            <>
+              <button 
+                onClick={onAuthClick}
+                className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-base font-semibold shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5 cursor-pointer"
+              >
+                Начать подготовку к ЕНТ
+              </button>
+              
+              <button 
+                onClick={onAuthClick}
+                className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-8 py-4 rounded-2xl text-base font-semibold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>▶</span> Смотреть демо
+              </button>
+            </>
+          )}
         </div>
 
         {/* Интерактивный макет ноутбука */}

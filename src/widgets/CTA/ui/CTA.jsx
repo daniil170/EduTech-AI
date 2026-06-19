@@ -1,4 +1,8 @@
-export const CTA = ({ onAuthClick }) => {
+import { useNavigate } from "react-router-dom";
+
+export const CTA = ({ onAuthClick, user }) => {
+  const navigate = useNavigate();
+
   return (
     <section className="py-16 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -11,12 +15,21 @@ export const CTA = ({ onAuthClick }) => {
               Присоединяйся к EduTrack ЕНТ AI сегодня и начни готовиться по персональному плану, созданному искусственным интеллектом специально для тебя.
             </p>
             <div className="mt-8 flex justify-center">
-              <button 
-                onClick={onAuthClick}
-                className="bg-white text-indigo-600 hover:bg-indigo-50 px-8 py-4 rounded-2xl text-base font-semibold shadow-md transition transform hover:-translate-y-0.5"
-              >
-                Начать подготовку бесплатно
-              </button>
+              {user ? (
+                <button 
+                  onClick={() => navigate("/workspace")}
+                  className="bg-white text-indigo-600 hover:bg-indigo-50 px-8 py-4 rounded-2xl text-base font-bold shadow-md transition transform hover:-translate-y-0.5 cursor-pointer"
+                >
+                  Перейти в личный кабинет 🚀
+                </button>
+              ) : (
+                <button 
+                  onClick={onAuthClick}
+                  className="bg-white text-indigo-600 hover:bg-indigo-50 px-8 py-4 rounded-2xl text-base font-semibold shadow-md transition transform hover:-translate-y-0.5 cursor-pointer"
+                >
+                  Начать подготовку бесплатно
+                </button>
+              )}
             </div>
           </div>
           <div className="absolute top-0 right-0 -mt-12 -mr-12 w-40 h-40 bg-white rounded-full blur-xl"></div>

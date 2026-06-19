@@ -82,9 +82,6 @@ function App() {
         // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: выносим из try блока, чтобы загрузка гарантированно отключалась
         setUser(currentUser);
         setLoading(false);
-        if (window.location.pathname === "/") {
-          navigate("/workspace");
-        }
       } else {
         setUser(null);
         setLoading(false);
@@ -139,7 +136,7 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/" element={user ? <Navigate to="/workspace" /> : <LandingPage />} />
+      <Route path="/" element={<LandingPage user={user} />} />
       <Route path="/dashboard" element={<Navigate to="/workspace" />} />
       <Route path="/workspace" element={user ? <Workspace /> : <Navigate to="/" />} />
     </Routes>

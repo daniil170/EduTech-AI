@@ -1,4 +1,8 @@
-export const Header = ({ onAuthClick }) => {
+import { useNavigate } from "react-router-dom";
+
+export const Header = ({ onAuthClick, user }) => {
+  const navigate = useNavigate();
+
   return (
     <header className="w-full bg-white backdrop-blur-md sticky top-0 z-50 border-b border-slate-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -14,13 +18,23 @@ export const Header = ({ onAuthClick }) => {
         </nav>
 
         <div className="flex items-center gap-4">
-          {/* Добавили экшены клика */}
-          <button onClick={onAuthClick} className="text-sm font-medium text-slate-700 hover:text-indigo-600 transition">
-            Войти
-          </button>
-          <button onClick={onAuthClick} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm transition">
-            Начать бесплатно
-          </button>
+          {user ? (
+            <button
+              onClick={() => navigate("/workspace")}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-sm transition-all"
+            >
+              Личный кабинет
+            </button>
+          ) : (
+            <>
+              <button onClick={onAuthClick} className="text-sm font-medium text-slate-700 hover:text-indigo-600 transition cursor-pointer">
+                Войти
+              </button>
+              <button onClick={onAuthClick} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm transition cursor-pointer">
+                Начать бесплатно
+              </button>
+            </>
+          )}
         </div>
 
       </div>
