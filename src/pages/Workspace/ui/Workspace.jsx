@@ -531,11 +531,21 @@ export const Workspace = () => {
             };
           },
         );
+        const updatedGoals = (studentStats.weeklyGoals || []).map((goal) => {
+          if (goal.id === 1 && (activeTasksSubject.toLowerCase().includes("матем") || activeTasksSubject.toLowerCase().includes("алгебр"))) {
+            return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
+          }
+          if (goal.id === 3) {
+            return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
+          }
+          return goal;
+        });
         try {
           await updateDoc(userDocRef, {
             overallProgress: nextProgress,
             weeklyProductivity: updatedProductivity,
             subjectsMastery: updatedMastery,
+            weeklyGoals: updatedGoals,
             recentActivity: [
               {
                 id: crypto.randomUUID(),
@@ -973,13 +983,21 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
     return () => unsubscribe();
   }, [user]);
 
-  const handleGoalClick = async (goalId) => {
+  const handleGoalClick = async (goalId, delta = 1) => {
     if (!studentStats || !user || !studentStats.weeklyGoals) return;
-    const updatedGoals = studentStats.weeklyGoals.map((goal) =>
-      goal.id === goalId
-        ? { ...goal, current: Math.min(goal.current + 5, goal.max) }
-        : goal,
-    );
+    const updatedGoals = studentStats.weeklyGoals.map((goal) => {
+      if (goal.id === goalId) {
+        let nextCurrent;
+        if (goal.max === 1) {
+          nextCurrent = goal.current === 0 ? 1 : 0;
+        } else {
+          nextCurrent = Math.max(0, Math.min(goal.current + delta, goal.max));
+        }
+        return { ...goal, current: nextCurrent };
+      }
+      return goal;
+    });
+
     const totalMax = updatedGoals.reduce((acc, g) => acc + g.max, 0);
     const totalCurrent = updatedGoals.reduce((acc, g) => acc + g.current, 0);
     const newProgress = Math.min(
@@ -987,6 +1005,10 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
       100,
     );
     const clickedGoal = studentStats.weeklyGoals.find((g) => g.id === goalId);
+    const actualDelta = clickedGoal ? (updatedGoals.find(g => g.id === goalId).current - clickedGoal.current) : 0;
+
+    if (actualDelta === 0) return;
+
     try {
       await updateDoc(doc(db, "users", user.uid), {
         weeklyGoals: updatedGoals,
@@ -995,8 +1017,8 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
           {
             id: crypto.randomUUID(),
             type: "Практика",
-            name: `Продвижение по цели: "${clickedGoal?.text}"`,
-            score: "+5 к прогрессу",
+            name: `Обновление цели: "${clickedGoal?.text}"`,
+            score: `${actualDelta > 0 ? "+" : ""}${actualDelta} к прогрессу`,
             time: "Только что",
           },
           ...(studentStats.recentActivity || []).slice(0, 4),
@@ -1318,12 +1340,19 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 ];
               }
             }
+            const updatedGoals = (studentStats.weeklyGoals || []).map((goal) => {
+              if (goal.id === 2) {
+                return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
+              }
+              return goal;
+            });
             try {
               await updateDoc(doc(db, "users", user.uid), {
                 overallProgress: nextProgress,
                 weeklyProductivity: updatedProductivity,
                 subjectsMastery: updatedMastery,
                 attentionRequired: nextAttentionRequired,
+                weeklyGoals: updatedGoals,
                 recentActivity: [
                   {
                     id: crypto.randomUUID(),
@@ -1511,28 +1540,65 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     Ежедневные задачи плана
                   </h3>
                   <div className="space-y-4">
-                    {studentStats?.weeklyGoals?.map((goal) => (
-                      <div
-                        key={goal.id}
-                        onClick={() => handleGoalClick(goal.id)}
-                        className="space-y-1 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-all"
-                      >
-                        <div className="flex justify-between text-xs font-semibold">
-                          <span>{goal.text}</span>
-                          <span className="text-slate-400 font-mono">
-                            {goal.current}/{goal.max}
-                          </span>
+                    {studentStats?.weeklyGoals?.map((goal) => {
+                      const isCompleted = goal.current >= goal.max;
+                      return (
+                        <div
+                          key={goal.id}
+                          className={`space-y-1.5 p-2 px-3 rounded-2xl transition-all border ${isCompleted ? "border-emerald-100 bg-emerald-50/20" : "border-slate-100 bg-slate-50/40"}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {goal.max === 1 ? (
+                                <input
+                                  type="checkbox"
+                                  checked={isCompleted}
+                                  onChange={() => handleGoalClick(goal.id)}
+                                  className="w-4 h-4 rounded-full border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                              ) : (
+                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCompleted ? "bg-emerald-500" : "bg-indigo-500 animate-pulse"}`} />
+                              )}
+                              <span className={`text-xs font-semibold text-slate-700 truncate ${isCompleted ? "line-through text-slate-400" : ""}`}>
+                                {goal.text}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 shrink-0">
+                              {goal.max > 1 && (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleGoalClick(goal.id, -1)}
+                                    className="w-5 h-5 flex items-center justify-center bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-bold transition-all shadow-sm"
+                                    title="Уменьшить"
+                                  >
+                                    -
+                                  </button>
+                                  <button
+                                    onClick={() => handleGoalClick(goal.id, 1)}
+                                    className="w-5 h-5 flex items-center justify-center bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-bold transition-all shadow-sm"
+                                    title="Увеличить"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              )}
+                              <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                {goal.current}/{goal.max}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${isCompleted ? "bg-emerald-500" : goal.color || "bg-indigo-600"}`}
+                              style={{
+                                width: `${Math.min((goal.current / goal.max) * 100, 100)}%`,
+                              }}
+                            ></div>
+                          </div>
                         </div>
-                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${goal.color} rounded-full`}
-                            style={{
-                              width: `${Math.min((goal.current / goal.max) * 100, 100)}%`,
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -1927,7 +1993,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
 
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl p-6 shadow-2xl text-slate-800 space-y-6 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl text-slate-800 space-y-5 relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsSettingsOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1"
@@ -1940,150 +2006,92 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
               </div>
               <div>
                 <h3 className="font-black text-sm uppercase tracking-wider">
-                  Подписка и настройки
+                  Подписка
                 </h3>
                 <p className="text-[10px] text-slate-400">
-                  Управление тарифом и параметрами подготовки
+                  Управление тарифом и планами обучения
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              {/* Left Column: Stats & Parameters (5 cols) */}
-              <div className="md:col-span-5 space-y-4 md:border-r md:border-slate-100 pr-0 md:pr-6">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
-                  Параметры обучения
+                  Тарифные планы
                 </h4>
-                
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                    Дней до ЕНТ
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="Например: 120"
-                    value={studentStats?.daysToUnt || ""}
-                    onChange={async (e) => {
-                      const val = e.target.value ? parseInt(e.target.value, 10) : "";
-                      const updatedStats = { ...studentStats, daysToUnt: val };
-                      setStudentStats(updatedStats);
-                      try {
-                        localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
-                        await updateDoc(doc(db, "users", user.uid), { daysToUnt: val });
-                      } catch (err) {
-                        console.warn("Deferred Firestore save:", err);
-                      }
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                    Класс обучения
-                  </label>
-                  <select
-                    value={studentStats?.grade || "11 класс"}
-                    onChange={async (e) => {
-                      const val = e.target.value;
-                      const updatedStats = { ...studentStats, grade: val };
-                      setStudentStats(updatedStats);
-                      try {
-                        localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
-                        await updateDoc(doc(db, "users", user.uid), { grade: val });
-                      } catch (err) {
-                        console.warn("Deferred Firestore save:", err);
-                      }
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
-                  >
-                    <option value="9 класс">9 класс</option>
-                    <option value="10 класс">10 класс</option>
-                    <option value="11 класс">11 класс</option>
-                  </select>
-                </div>
+                <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
+                  👑 Premium активен
+                </span>
               </div>
 
-              {/* Right Column: Subscription and Plans (7 cols) */}
-              <div className="md:col-span-7 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
-                    Тарифные планы
-                  </h4>
-                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
-                    👑 Premium активен
-                  </span>
+              {/* Plans List */}
+              <div className="space-y-3">
+                {/* Plan 1: Free */}
+                <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-700">Базовый</span>
+                      <span className="text-[8px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold uppercase">Free</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-tight">3 ИИ-запроса в день, стандартный календарь</p>
+                  </div>
+                  <div className="text-right flex flex-col items-end">
+                    <p className="text-xs font-black text-slate-700">0 ₸</p>
+                    <button 
+                      onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
+                      className="text-[9px] text-slate-400 hover:text-indigo-600 font-bold transition mt-1"
+                    >
+                      Перейти
+                    </button>
+                  </div>
                 </div>
 
-                {/* Plans List */}
-                <div className="space-y-3">
-                  {/* Plan 1: Free */}
-                  <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-700">Базовый</span>
-                        <span className="text-[8px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold uppercase">Free</span>
-                      </div>
-                      <p className="text-[10px] text-slate-400 leading-tight">3 ИИ-запроса в день, стандартный календарь</p>
-                    </div>
-                    <div className="text-right flex flex-col items-end">
-                      <p className="text-xs font-black text-slate-700">0 ₸</p>
-                      <button 
-                        onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
-                        className="text-[9px] text-slate-400 hover:text-indigo-600 font-bold transition mt-1"
-                      >
-                        Перейти
-                      </button>
-                    </div>
+                {/* Plan 2: Premium (Active) */}
+                <div className="border-2 border-emerald-500 bg-emerald-50/5 p-3 rounded-2xl relative flex justify-between items-center shadow-sm">
+                  <div className="absolute -top-2.5 right-4 bg-emerald-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                    Текущий
                   </div>
-
-                  {/* Plan 2: Premium (Active) */}
-                  <div className="border-2 border-emerald-500 bg-emerald-50/5 p-3 rounded-2xl relative flex justify-between items-center shadow-sm">
-                    <div className="absolute -top-2.5 right-4 bg-emerald-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                      Текущий
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-emerald-800">Премиум ЕНТ</span>
+                      <span className="text-[8px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Популярный</span>
                     </div>
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-emerald-800">Премиум ЕНТ</span>
-                        <span className="text-[8px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Популярный</span>
-                      </div>
-                      <p className="text-[10px] text-emerald-700/80 leading-tight">Безлимитный ИИ, Умный календарь, авторасписание</p>
-                    </div>
-                    <div className="text-right flex flex-col items-end">
-                      <p className="text-xs font-black text-emerald-800">4 990 ₸</p>
-                      <p className="text-[8px] text-emerald-600 font-bold mt-1 uppercase tracking-wider">Активен</p>
-                    </div>
+                    <p className="text-[10px] text-emerald-700/80 leading-tight">Безлимитный ИИ, Умный календарь, авторасписание</p>
                   </div>
+                  <div className="text-right flex flex-col items-end">
+                    <p className="text-xs font-black text-emerald-800">4 990 ₸</p>
+                    <p className="text-[8px] text-emerald-600 font-bold mt-1 uppercase tracking-wider">Активен</p>
+                  </div>
+                </div>
 
-                  {/* Plan 3: Ultimate */}
-                  <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-700">Ультимейт ЕНТ</span>
-                        <span className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Максимум</span>
-                      </div>
-                      <p className="text-[10px] text-slate-400 leading-tight">Премиум + Личный ИИ-ментор 24/7, сложные симуляции</p>
+                {/* Plan 3: Ultimate */}
+                <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-700">Ультимейт ЕНТ</span>
+                      <span className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Максимум</span>
                     </div>
-                    <div className="text-right flex flex-col items-end">
-                      <p className="text-xs font-black text-slate-700">9 990 ₸</p>
-                      <button 
-                        onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
-                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1"
-                      >
-                        Купить
-                      </button>
-                    </div>
+                    <p className="text-[10px] text-slate-400 leading-tight">Премиум + Личный ИИ-ментор 24/7, сложные симуляции</p>
+                  </div>
+                  <div className="text-right flex flex-col items-end">
+                    <p className="text-xs font-black text-slate-700">9 990 ₸</p>
+                    <button 
+                      onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
+                      className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1"
+                    >
+                      Купить
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-3 pt-2">
+            <div className="pt-2">
               <button
                 onClick={() => setIsSettingsOpen(false)}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg"
               >
-                Сохранить параметры
+                Закрыть
               </button>
             </div>
           </div>
