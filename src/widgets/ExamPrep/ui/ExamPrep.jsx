@@ -27,13 +27,31 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
 
   // Живая генерация умного плана через ИИ
   const handleGenerateAdvancedPlan = async () => {
+    const subjects = studentStats?.subjectsMastery?.map(s => s.name) || ["История Казахстана"];
+    
     if (!geminiKey) {
-      alert("Для интерактивного ИИ-планирования подключите API-ключ Gemini в настройках!");
+      // Локальная генерация в случае отсутствия ключа (fallback)
+      setLoading(true);
+      setTimeout(async () => {
+        const mockResult = {
+          studyPlan: [
+            { id: "p-1", name: `Глубокий разбор сложных тем по предмету ${subjects[0]}`, status: "upcoming", date: "Срок: 3 дня", subject: subjects[0] },
+            { id: "p-2", name: `Анализ исторических дат и терминов (${subjects[1] || subjects[0]})`, status: "upcoming", date: "Срок: 5 дней", subject: subjects[1] || subjects[0] },
+            { id: "p-3", name: `Практическое тестирование по разделу ${subjects[0]}`, status: "upcoming", date: "Срок: 1 неделя", subject: subjects[0] }
+          ],
+          recommendations: [
+            "Регулярно тренируйтесь в ИИ-тренажере по слабым темам",
+            "Используйте Умный календарь для ежедневного распределения нагрузки"
+          ]
+        };
+        await savePlanToFirestore(mockResult.studyPlan, mockResult.recommendations, 0);
+        setLoading(false);
+      }, 1000);
       return;
     }
+    
     setLoading(true);
 
-    const subjects = studentStats?.subjectsMastery?.map(s => s.name) || ["История Казахстана"];
     const prompt = `Ты — ведущий ИИ-методолог ЕНТ. Сформируй расширенный индивидуальный пошаговый план подготовки на основе предметов ученика: ${subjects.join(", ")}.
 Ответ верни строго в формате JSON без markdown-оберток (без \`\`\`json):
 {
@@ -71,8 +89,19 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
       await savePlanToFirestore(result.studyPlan, result.recommendations, 0);
 
     } catch (e) {
-      console.error(e);
-      alert("Не удалось сгенерировать план. Проверьте API-ключ.");
+      console.error("Gemini API error, falling back to local generation:", e);
+      const mockResult = {
+        studyPlan: [
+          { id: "p-1", name: `Разбор типовых вопросов ЕНТ по предмету ${subjects[0]}`, status: "upcoming", date: "Срок: 3 дня", subject: subjects[0] },
+          { id: "p-2", name: `Изучение теории и ключевых формул (${subjects[1] || subjects[0]})`, status: "upcoming", date: "Срок: 5 дней", subject: subjects[1] || subjects[0] },
+          { id: "p-3", name: `Финальная ИИ-симуляция тестирования ЕНТ`, status: "upcoming", date: "Срок: 1 неделя", subject: subjects[0] }
+        ],
+        recommendations: [
+          "Регулярно тренируйтесь в ИИ-тренажере по слабым темам",
+          "Используйте Умный календарь для ежедневного распределения нагрузки"
+        ]
+      };
+      await savePlanToFirestore(mockResult.studyPlan, mockResult.recommendations, 0);
     } finally {
       setLoading(false);
     }

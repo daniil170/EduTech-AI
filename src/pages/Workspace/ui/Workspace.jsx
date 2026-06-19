@@ -1410,7 +1410,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
             onClick={() => setIsSettingsOpen(true)}
             className="w-full flex items-center gap-3 px-4 py-1.5 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-bold transition"
           >
-            <span>⚙️</span> Настройки Ключа
+            <span>💳</span> Подписка
           </button>
           <button
             onClick={handleLogout}
@@ -1927,7 +1927,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
 
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl text-slate-800 space-y-5 relative">
+          <div className="bg-white w-full max-w-2xl rounded-3xl p-6 shadow-2xl text-slate-800 space-y-6 relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsSettingsOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1"
@@ -1936,86 +1936,154 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
             </button>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl">
-                ⚙️
+                💳
               </div>
               <div>
                 <h3 className="font-black text-sm uppercase tracking-wider">
-                  Настройки EduTech AI
+                  Подписка и настройки
                 </h3>
                 <p className="text-[10px] text-slate-400">
-                  Персонализация и подключение ИИ
+                  Управление тарифом и параметрами подготовки
                 </p>
               </div>
             </div>
-            <div className="space-y-4">
-              <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 p-4 rounded-2xl text-xs flex items-center justify-between">
-                <div className="space-y-1">
-                  <p className="font-bold text-emerald-800 flex items-center gap-1">
-                    <span>👑</span> EduTrack Premium
-                  </p>
-                  <p className="text-[10px] text-emerald-600/80 font-semibold uppercase tracking-wider">
-                    Подписка активна
-                  </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              {/* Left Column: Stats & Parameters (5 cols) */}
+              <div className="md:col-span-5 space-y-4 md:border-r md:border-slate-100 pr-0 md:pr-6">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Параметры обучения
+                </h4>
+                
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                    Дней до ЕНТ
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="Например: 120"
+                    value={studentStats?.daysToUnt || ""}
+                    onChange={async (e) => {
+                      const val = e.target.value ? parseInt(e.target.value, 10) : "";
+                      const updatedStats = { ...studentStats, daysToUnt: val };
+                      setStudentStats(updatedStats);
+                      try {
+                        localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
+                        await updateDoc(doc(db, "users", user.uid), { daysToUnt: val });
+                      } catch (err) {
+                        console.warn("Deferred Firestore save:", err);
+                      }
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
+                  />
                 </div>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold">
-                  БЕЗЛИМИТНЫЙ ИИ
-                </span>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                    Класс обучения
+                  </label>
+                  <select
+                    value={studentStats?.grade || "11 класс"}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      const updatedStats = { ...studentStats, grade: val };
+                      setStudentStats(updatedStats);
+                      try {
+                        localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
+                        await updateDoc(doc(db, "users", user.uid), { grade: val });
+                      } catch (err) {
+                        console.warn("Deferred Firestore save:", err);
+                      }
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
+                  >
+                    <option value="9 класс">9 класс</option>
+                    <option value="10 класс">10 класс</option>
+                    <option value="11 класс">11 класс</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                  Дней до ЕНТ
-                </label>
-                <input
-                  type="number"
-                  placeholder="Например: 120"
-                  value={studentStats?.daysToUnt || ""}
-                  onChange={async (e) => {
-                    const val = e.target.value ? parseInt(e.target.value, 10) : "";
-                    const updatedStats = { ...studentStats, daysToUnt: val };
-                    setStudentStats(updatedStats);
-                    try {
-                      localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
-                      await updateDoc(doc(db, "users", user.uid), { daysToUnt: val });
-                    } catch (err) {
-                      console.warn("Deferred Firestore save:", err);
-                    }
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
-                />
-              </div>
+              {/* Right Column: Subscription and Plans (7 cols) */}
+              <div className="md:col-span-7 space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                    Тарифные планы
+                  </h4>
+                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
+                    👑 Premium активен
+                  </span>
+                </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                  Класс обучения
-                </label>
-                <select
-                  value={studentStats?.grade || "11 класс"}
-                  onChange={async (e) => {
-                    const val = e.target.value;
-                    const updatedStats = { ...studentStats, grade: val };
-                    setStudentStats(updatedStats);
-                    try {
-                      localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
-                      await updateDoc(doc(db, "users", user.uid), { grade: val });
-                    } catch (err) {
-                      console.warn("Deferred Firestore save:", err);
-                    }
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
-                >
-                  <option value="9 класс">9 класс</option>
-                  <option value="10 класс">10 класс</option>
-                  <option value="11 класс">11 класс</option>
-                </select>
+                {/* Plans List */}
+                <div className="space-y-3">
+                  {/* Plan 1: Free */}
+                  <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-700">Базовый</span>
+                        <span className="text-[8px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold uppercase">Free</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-tight">3 ИИ-запроса в день, стандартный календарь</p>
+                    </div>
+                    <div className="text-right flex flex-col items-end">
+                      <p className="text-xs font-black text-slate-700">0 ₸</p>
+                      <button 
+                        onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
+                        className="text-[9px] text-slate-400 hover:text-indigo-600 font-bold transition mt-1"
+                      >
+                        Перейти
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Plan 2: Premium (Active) */}
+                  <div className="border-2 border-emerald-500 bg-emerald-50/5 p-3 rounded-2xl relative flex justify-between items-center shadow-sm">
+                    <div className="absolute -top-2.5 right-4 bg-emerald-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                      Текущий
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-emerald-800">Премиум ЕНТ</span>
+                        <span className="text-[8px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Популярный</span>
+                      </div>
+                      <p className="text-[10px] text-emerald-700/80 leading-tight">Безлимитный ИИ, Умный календарь, авторасписание</p>
+                    </div>
+                    <div className="text-right flex flex-col items-end">
+                      <p className="text-xs font-black text-emerald-800">4 990 ₸</p>
+                      <p className="text-[8px] text-emerald-600 font-bold mt-1 uppercase tracking-wider">Активен</p>
+                    </div>
+                  </div>
+
+                  {/* Plan 3: Ultimate */}
+                  <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-700">Ультимейт ЕНТ</span>
+                        <span className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Максимум</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-tight">Премиум + Личный ИИ-ментор 24/7, сложные симуляции</p>
+                    </div>
+                    <div className="text-right flex flex-col items-end">
+                      <p className="text-xs font-black text-slate-700">9 990 ₸</p>
+                      <button 
+                        onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
+                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1"
+                      >
+                        Купить
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setIsSettingsOpen(false)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg"
               >
-                Готово
+                Сохранить параметры
               </button>
             </div>
           </div>
