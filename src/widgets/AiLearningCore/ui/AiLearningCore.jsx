@@ -48,11 +48,21 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
 
   const cleanLatexString = (str) => {
     if (!str) return "";
-    return str
+    let cleaned = str
       .toString()
       .replace(/\\\\/g, "\\")
-      .replace(/\\n/g, "\n")
-      .trim();
+      .replace(/\\n/g, "\n");
+      
+    // Автоматическое исправление \textСлово в \text{Слово} для корректного рендеринга кириллицы
+    cleaned = cleaned.replace(/\\text([А-Яа-яA-Za-z]+)/g, "\\text{$1}");
+    
+    // Автоматическое исправление \fracAB в \frac{A}{B}
+    cleaned = cleaned.replace(/\\frac([A-Za-z0-9])([A-Za-z0-9])/g, "\\frac{$1}{$2}");
+
+    // Экранирование процентов для корректного рендеринга в KaTeX
+    cleaned = cleaned.replace(/(\d+)%/g, "$1\\%");
+
+    return cleaned.trim();
   };
 
   const renderCleanContent = (rawText) => {
@@ -63,6 +73,25 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     return lines.map((line, lineIdx) => {
       let currentLine = line.trim();
       if (!currentLine) return <div key={lineIdx} className="h-2" />;
+
+      // Авто-детект формул без знаков $
+      if (currentLine.includes("\\") && !currentLine.includes("$")) {
+        if (currentLine.includes(":")) {
+          const colonIdx = currentLine.indexOf(":");
+          const textPart = currentLine.slice(0, colonIdx + 1);
+          let formulaPart = currentLine.slice(colonIdx + 1).trim();
+          
+          let endsWithDot = false;
+          if (formulaPart.endsWith(".")) {
+            formulaPart = formulaPart.slice(0, -1);
+            endsWithDot = true;
+          }
+          
+          currentLine = `${textPart} $${formulaPart}$${endsWithDot ? "." : ""}`;
+        } else {
+          currentLine = `$${currentLine}$`;
+        }
+      }
 
       let isHeader = false;
       if (currentLine.startsWith("###")) {
@@ -137,8 +166,8 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     const prompt = `Ты — профессиональный ИИ-преподаватель ЕНТ. Сгенерируй полноценный интерактивный урок по предмету "${subject}" на тему "${topic}".
 Ответ верни СТРОГО в формате JSON без каких-либо markdown-оберток (без \`\`\`json):
 {
-  "theory": "### Краткий конспект\\nНапиши ОЧЕНЬ краткий конспект (тезисно, без воды, только суть в виде bullet-points). Каждую формулу оборачивай в знаки $, например: $v = s / t$. Ключевые термины выделяй жирным. ВАЖНО: используй двойные слеши для LaTeX (\\\\frac, \\\\times) и ВСЕГДА используй фигурные скобки для аргументов (например, \\\\frac{A}{B}, \\\\bar{X}, \\\\% ). Не пиши \\\\frac A B без скобок!",
-  "formula": "Главная базовая формула раздела в LaTeX БЕЗ знаков доллара (пример: v = \\\\frac{s}{t})",
+  "theory": "### Краткий конспект\\nНапиши ОЧЕНЬ краткий конспект (тезисно, без воды, только суть в виде bullet-points). Каждую формулу, математическое выражение или переменную ОБЯЗАТЕЛЬНО оборачивай в знаки $, например: $\\\\text{Часть} = \\\\frac{\\\\text{Процент}}{100\\\\%} \\\\times \\\\text{Целое}$. Ключевые термины выделяй жирным. ВАЖНО: используй двойные слеши для LaTeX (\\\\frac, \\\\times) и ВСЕГДА используй фигурные скобки для аргументов (например, \\\\frac{A}{B}, \\\\bar{X}, \\\\% ). Не пиши \\\\frac A B без скобок!",
+  "formula": "Главная базовая формула раздела в LaTeX БЕЗ знаков доллара. ВСЕГДА используй фигурные скобки для дробей, индексов и степеней! Пример: P = \\\\frac{V_{final} - V_{initial}}{V_{initial}} \\\\times 100",
   "tasks": [
     {
       "question": "Условие сложной задачи ЕНТ №1. Если есть формулы — оборачивай в $...$",
