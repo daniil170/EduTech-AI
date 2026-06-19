@@ -88,7 +88,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900 backdrop-blur-sm">
       <div className="absolute inset-0" onClick={onClose}></div>
 
       <div className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row min-h-[550px] animate-in fade-in zoom-in-95 duration-200">
@@ -112,7 +112,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
             </h3>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-md border border-white/10 p-5 rounded-2xl relative z-10 mt-8 md:mt-0">
+          <div className="bg-white backdrop-blur-md border border-white/10 p-5 rounded-2xl relative z-10 mt-8 md:mt-0">
             <div className="flex items-center gap-2 font-semibold text-sm mb-2 text-white">
               <span>✨</span> Прогнозирование баллов
             </div>

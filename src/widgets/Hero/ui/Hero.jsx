@@ -45,7 +45,7 @@ export const Hero = ({ onAuthClick }) => {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4 h-full pt-2">
-                <div className="col-span-2 border border-slate-800 rounded-lg p-4 bg-slate-900/50 flex flex-col justify-between">
+                <div className="col-span-2 border border-slate-800 rounded-lg p-4 bg-slate-900 flex flex-col justify-between">
                   <div className="text-slate-200 font-sans font-bold text-sm">График успеваемости к ЕНТ (Все предметы)</div>
                   <div className="h-32 flex items-end gap-3 pt-4">
                     <div className="w-full bg-indigo-500 h-[40%] rounded-t"></div>
@@ -55,7 +55,7 @@ export const Hero = ({ onAuthClick }) => {
                     <div className="w-full bg-purple-500 h-[90%] rounded-t"></div>
                   </div>
                 </div>
-                <div className="border border-slate-800 rounded-lg p-4 bg-slate-900/50 flex flex-col gap-3">
+                <div className="border border-slate-800 rounded-lg p-4 bg-slate-900 flex flex-col gap-3">
                   <div className="text-slate-200 font-sans font-bold text-xs">Слабые темы</div>
                   <div className="space-y-2 font-sans text-[11px]">
                     <div className="p-2 bg-red-950/40 text-red-400 rounded border border-red-900/30">✕ История Казахстана (42%)</div>

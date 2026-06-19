@@ -3,23 +3,38 @@ import { db } from "../../../app/providers/Firebase/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { BlockMath, InlineMath } from "react-katex";
 
-// Локальный фолбек на случай, если ключ не передан или отвалился интернет
-const getLocalLessonFallback = (subject, topic) => ({
-  theory: "### Основные положения\n\nПри подготовке к ЕНТ важно помнить базовые законы.\n\n### Ключевые формулы\n\nСкорость движения и закон сохранения энергии играют важнейшую роль в расчетных задачах физики и механики.",
-  formula: "v = \\frac{s}{t} \\quad \\text{и} \\quad E_k = \\frac{m \\cdot v^2}{2}",
-  tasks: [
-    { question: `Тестовое задание №1 по теме ${topic}. Какое из следующих утверждений наиболее точно описывает базовый процесс?`, options: ["A) Оптимальный вариант А", "B) Альтернативный вариант Б", "C) Промежуточный вариант В", "D) Вариант Г"], correct: 0, exp: "Разбор: Согласно базовой теории, именно вариант А полностью удовлетворяет начальным критериям." },
-    { question: `Тестовое задание №2 по теме ${topic}. Вычислите или определите логическое следствие из условий.`, options: ["A) Первое следствие", "B) Второе следствие (Верно)", "C) Третье следствие", "D) Все варианты неверны"], correct: 1, exp: "Разбор: Второе следствие напрямую вытекает из аксиом текущего раздела." },
-    { question: `Тестовое задание №3 по теме ${topic}. Итоговый закрепляющий вопрос на понимание структуры раздела.`, options: ["A) Значение равно 0", "B) Значение стремится к бесконечности", "C) Правильный ответ С", "D) Недостаточно условий для точного ответа"], correct: 2, exp: "Разбор: Системный анализ показывает, что вариант С закрывает цепочку рассуждений." }
-  ]
-});
+// Локальный умный фолбек, адаптирующийся под предмет (исправлен сброс на математику)
+const getLocalLessonFallback = (subject, topic) => {
+  const isHistory = subject.toLowerCase().includes("история");
+  
+  if (isHistory) {
+    return {
+      theory: `### Экспресс-конспект: ${topic}\n\nПри подготовке к ЕНТ по Истории Казахстана ключевое значение имеют даты, причинно-следственные связи и ключевые личности периода.\n\n### Основные положения\nВажно помнить структуру расселения племен, их политический строй, даты крупных восстаний и хронологию ключевых сражений.`,
+      formula: "",
+      tasks: [
+        { question: `Тестовое задание №1 по теме: ${topic}. Какое событие предопределило развитие региона в этот период?`, options: ["A) Укрепление централизованной власти", "B) Территориальный распад", "C) Экономический кризис", "D) Миграция племен"], correct: 0, exp: "Разбор: Согласно историческим источникам, именно централизация власти привела к стабильному развитию." },
+        { question: `Тестовое задание №2 по теме: ${topic}. Назовите ключевую историческую личность, связанную с этим этапом.`, options: ["A) Политический лидер А", "B) Правитель Б (Верно)", "C) Военачальник В", "D) Дипломат Г"], correct: 1, exp: "Разбор: Из летописей известно, что именно реформы Правителя Б легли в основу изменений." },
+        { question: `Тестовое задание №3 по теме: ${topic}. Каковы были долгосрочные последствия изучаемых процессов?`, options: ["A) Формирование новой этнополитической общности", "B) Полное исчезновение институтов", "C) Перенос столицы государства", "D) Заключение мирного договора"], correct: 0, exp: "Разбор: Системный анализ показывает, что процессы завершились этнополитической консолидацией." }
+      ]
+    };
+  }
 
-export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
+  return {
+    theory: `### Теоретический материал: ${topic}\n\nРазбор базовых законов и принципов по предмету ${subject}. Ознакомьтесь с формулами и структурами перед выполнением практики.`,
+    formula: "v = \\frac{s}{t}",
+    tasks: [
+      { question: `Практическая задача №1 (${topic}). Определите значение целевой переменной.`, options: ["A) Вариант А", "B) Вариант Б", "C) Вариант В", "D) Вариант Г"], correct: 0, exp: "Разбор: Применение базового уравнения даёт однозначный ответ А." },
+      { question: `Практическая задача №2 (${topic}). Вычислите логическое следствие.`, options: ["A) Вариант А", "B) Вариант Б", "C) Вамиант В", "D) Вариант Г"], correct: 1, exp: "Разбор: Второе следствие напрямую вытекает из условий задачи." },
+      { question: `Практическая задача №3 (${topic}). Закрепляющий вопрос.`, options: ["A) Вариант А", "B) Вариант Б", "C) Вариант В", "D) Вариант Г"], correct: 2, exp: "Разбор: Корректная цепочка рассуждений приводит к варианту В." }
+    ]
+  };
+};
+
+export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEvents }) => {
   const [mode, setMode] = useState("menu"); // menu, lesson_theory, lesson_practice, lesson_results, mock_exam, mock_results
   const [currentSubject, setCurrentSubject] = useState("");
   const [currentTopic, setCurrentTopic] = useState("");
   
-  // Состояния урока
   const [lessonData, setLessonData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [currentTaskIdx, setCurrentTaskIdx] = useState(0);
@@ -27,35 +42,28 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
   const [taskChecked, setTaskChecked] = useState(false);
   const [lessonScore, setLessonScore] = useState(0);
 
-  // Состояния еженедельного пробника
   const [mockQuestions, setMockQuestions] = useState([]);
   const [mockAnswers, setMockAnswers] = useState({});
   const [mockAnalysis, setMockAnalysis] = useState("");
 
-  // === УМНЫЙ СУПЕР-ПАРСЕР ДЛЯ ОЧИСТКИ ТЕКСТА И LATEX ===
   const cleanLatexString = (str) => {
     if (!str) return "";
     return str
       .toString()
-      .replace(/\\\\/g, "\\") // Превращаем двойные слэши ИИ в одинарные
-      .replace(/\\n/g, "\n")  // Исправляем баганые переносы строк
+      .replace(/\\\\/g, "\\")
+      .replace(/\\n/g, "\n")
       .trim();
   };
 
   const renderCleanContent = (rawText) => {
     if (!rawText) return null;
-    
-    // Чистим текст от системного мусора ИИ
     const text = cleanLatexString(rawText);
-
-    // Делим текст на строки, чтобы обрабатывать абзацы, списки и заголовки
     const lines = text.split("\n");
 
     return lines.map((line, lineIdx) => {
       let currentLine = line.trim();
       if (!currentLine) return <div key={lineIdx} className="h-2" />;
 
-      // Проверяем заголовки (### Текст)
       let isHeader = false;
       if (currentLine.startsWith("###")) {
         isHeader = true;
@@ -65,7 +73,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
         currentLine = currentLine.replace(/^##\s*/, "");
       }
 
-      // Выделяем формулы внутри строки по знакам $
       const parts = currentLine.split(/(\$[^$]+\$)/g);
       
       const inlineRendered = parts.map((part, partIdx) => {
@@ -78,7 +85,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
           }
         }
 
-        // Поддержка жирного текста **текст** внутри строк
         const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
         return boldParts.map((bPart, bIdx) => {
           if (bPart.startsWith("**") && bPart.endsWith("**")) {
@@ -96,7 +102,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
         );
       }
 
-      // Если строка начинается со списка (* или -)
       if (line.trim().startsWith("*") || line.trim().startsWith("-")) {
         return (
           <div key={lineIdx} className="flex items-start gap-2 text-xs text-slate-300 pl-2 my-1">
@@ -114,7 +119,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
     });
   };
 
-  // === ЖИВАЯ ИИ-ГЕНЕРАЦИЯ ПОЛНОЦЕННОГО УРОКА ЧЕРЕЗ GEMINI ===
   const startLesson = async (subject, topic) => {
     setCurrentSubject(subject);
     setCurrentTopic(topic);
@@ -133,7 +137,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
     const prompt = `Ты — профессиональный ИИ-преподаватель ЕНТ. Сгенерируй полноценный интерактивный урок по предмету "${subject}" на тему "${topic}".
 Ответ верни СТРОГО в формате JSON без каких-либо markdown-оберток (без \`\`\`json):
 {
-  "theory": "### Введение\\nНапиши развернутый структурированный теоретический материал (5-7 предложений). Используй переносы строк \\\\n для читаемости. Каждую формулу или переменную ОБЯЗАТЕЛЬНО оборачивай в одиночные знаки $, например: $v = s / t$ или $E = m \\\\cdot c^2$. Ключевые термины выделяй жирным через **слово**.",
+  "theory": "### Краткий конспект\\nНапиши ОЧЕНЬ краткий конспект (тезисно, без воды, только суть в виде bullet-points). Каждую формулу оборачивай в знаки $, например: $v = s / t$. Ключевые термины выделяй жирным. ВАЖНО: используй двойные слеши для LaTeX (\\\\frac, \\\\times) и ВСЕГДА используй фигурные скобки для аргументов (например, \\\\frac{A}{B}, \\\\bar{X}, \\\\% ). Не пиши \\\\frac A B без скобок!",
   "formula": "Главная базовая формула раздела в LaTeX БЕЗ знаков доллара (пример: v = \\\\frac{s}{t})",
   "tasks": [
     {
@@ -229,19 +233,23 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
     setMode("menu");
   };
 
-  // === ЖИВАЯ ИИ-ГЕНЕРАЦИЯ ЕЖЕНЕДЕЛЬНОГО ПРОБНИКА ===
   const startWeeklyMock = async () => {
     setLoading(true);
     setMode("mock_exam");
     setMockAnswers({});
 
+    const currentWeekTopics = calendarEvents?.map(ev => `${ev.subject} (Тема: ${ev.topic})`) || [];
     const subjects = userData?.subjectsMastery?.map(s => s.name) || ["История Казахстана", "Математическая грамотность"];
     
     if (!geminiKey) {
-      const generated = subjects.flatMap((sub, sIdx) => [
-        { id: sIdx * 2 + 1, subject: sub, text: `Комплексный вопрос ЕНТ по предмету ${sub}. Проверка системного мышления и профильных знаний кодификатора.`, options: ["Вариант А", "Вариант Б", "Вариант В", "Вариант Г"], correct: 1 },
-        { id: sIdx * 2 + 2, subject: sub, text: `Сложная расчетная задача ЕНТ по предмету ${sub}. Проанализируйте переменные перед выбором ответа.`, options: ["Ответ 1", "Ответ 2", "Ответ 3", "Ответ 4"], correct: 0 }
-      ]);
+      const generated = subjects.flatMap((sub, sIdx) => {
+        const subEvents = calendarEvents?.filter(e => e.subject === sub) || [];
+        const activeTopic = subEvents.length > 0 ? subEvents[0].topic : "Общая теория раздела";
+        return [
+          { id: sIdx * 2 + 1, subject: sub, text: `Комплексный вопрос ЕНТ по предмету ${sub}. Тема недели: ${activeTopic}. Проверка системного мышления.`, options: ["Вариант А", "Вариант Б", "Вариант В", "Вариант Г"], correct: 1 },
+          { id: sIdx * 2 + 2, subject: sub, text: `Сложная проверочная задача ЕНТ по предмету ${sub} на тему: ${activeTopic}.`, options: ["Ответ 1", "Ответ 2", "Ответ 3", "Ответ 4"], correct: 0 }
+        ];
+      });
       setTimeout(() => {
         setMockQuestions(generated);
         setLoading(false);
@@ -250,14 +258,16 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
     }
 
     const prompt = `Ты — эксперт ЕНТ. Сгенерируй еженедельный пробный срез знаний для ученика. 
-Ученик сдает следующие предметы: ${subjects.join(", ")}.
-Сгенерируй строго по 2 качественных вопроса на каждый из этих предметов. Формулы и математические символы ОБЯЗАТЕЛЬНО оборачивай в $...$.
+Ученик на этой неделе изучал следующие темы по расписанию:
+${currentWeekTopics.join("\n")}
+
+Сгенерируй строго по 2 качественных вопроса на каждый из этих предметов, опираясь ИМЕННО на указанные темы недели. Формулы и математические символы ОБЯЗАТЕЛЬНО оборачивай в $...$.
 Ответ верни СТРОГО в формате JSON без markdown-оберток (без \`\`\`json):
 [
   {
     "id": 1,
     "subject": "Название предмета",
-    "text": "Условие тестового задания ЕНТ",
+    "text": "Условие тестового задания ЕНТ по изученной теме недели",
     "options": ["A) Вариант 1", "B) Вариант 2", "C) Вариант 3", "D) Вариант 4"],
     "correct": 0
   }
@@ -299,7 +309,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
     const percent = Math.round((correctCount / mockQuestions.length) * 100);
 
     if (!geminiKey) {
-      setMockAnalysis(`🤖 ИИ-Анализ еженедельного пробника:\n\nОбщая точность: ${percent}% (${correctCount}/${mockQuestions.length} задач).\n\n• Сильные стороны: Хорошая динамика решения.\n• Обнаруженные пробелы: Требуется более глубокая проработка формул.\n\nРекомендация ИИ: План подготовки на следующую неделю обновлен. Фокус смещен на слабые разделы профильных предметов.`);
+      setMockAnalysis(`🤖 ИИ-Анализ еженедельного пробника:\n\nОбщая точность: ${percent}% (${correctCount}/${mockQuestions.length} задач).\n\n• Сильные стороны: Успешное освоение последовательного плана.\n• Обнаруженные пробелы: Некоторые темы требуют закрепления.\n\nРекомендация ИИ: Слабые темы добавлены в приоритет планировщика на следующую неделю.`);
       setLoading(false);
       return;
     }
@@ -353,7 +363,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
       {/* HEADER */}
       <div className="flex justify-between items-center border-b pb-4 border-slate-100">
         <div>
-          <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold uppercase tracking-wider">Модуль: AI-Learning Core v2.0</span>
+          <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold uppercase tracking-wider">Модуль: AI-Learning Core v2.1</span>
           <h2 className="text-xl font-black mt-2 text-slate-900">Академические ИИ-Уроки и Пробники</h2>
         </div>
         <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold transition">
@@ -377,20 +387,23 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
               <div className="text-2xl">📖</div>
               <h3 className="font-black text-base text-slate-800 mt-2">Полноценные ИИ-Уроки</h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Каждый урок состоит из структурированного экспресс-конспекта с формулами, разбора примеров и мини-теста из 3 задач с ИИ-аналитикой для закрепления темы.
+                Каждый урок состоит из экспресс-конспекта, разбора примеров и мини-теста из 3 задач. Темы подбираются строго по цепочке вашего плана подготовки.
               </p>
               <div className="mt-4 space-y-2">
-                <label className="text-[9px] font-black text-slate-400 uppercase block">Доступные темы из твоего расписания:</label>
-                {(userData?.subjectsMastery || []).slice(0, 3).map((sub, idx) => (
-                  <button 
-                    key={idx}
-                    onClick={() => startLesson(sub.name, `Интерактивный разбор разделов: ${sub.name}`)}
-                    className="w-full text-left bg-white border hover:border-indigo-400 p-3 rounded-xl text-xs font-bold text-slate-700 flex justify-between items-center transition"
-                  >
-                    <span>{sub.name}</span>
-                    <span className="text-indigo-600 text-[11px]">Начать урок →</span>
-                  </button>
-                ))}
+                <label className="text-[9px] font-black text-slate-400 uppercase block">Твой следующий урок по расписанию:</label>
+                {(userData?.subjectsMastery || []).slice(0, 3).map((sub, idx) => {
+                  const currentPlanTopic = userData?.examPrep?.studyPlan?.find(p => p.status === "upcoming" || p.status === "in_progress")?.name || "Общая теория раздела";
+                  return (
+                    <button 
+                      key={idx}
+                      onClick={() => startLesson(sub.name, currentPlanTopic)}
+                      className="w-full text-left bg-white border hover:border-indigo-400 p-3 rounded-xl text-xs font-bold text-slate-700 flex justify-between items-center transition"
+                    >
+                      <span>{sub.name} <span className="text-slate-400 font-normal">({currentPlanTopic})</span></span>
+                      <span className="text-indigo-600 text-[11px]">Начать урок →</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -401,7 +414,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
               <div className="text-2xl">📝</div>
               <h3 className="font-black text-base text-indigo-900 mt-2">Еженедельный Комплексный Пробник</h3>
               <p className="text-xs text-indigo-950/70 mt-1 leading-relaxed">
-                Срез знаний по всем твоим обязательным и профильным предметам ЕНТ за прошедшую неделю. По результатам пробника ИИ полностью перестроит стратегию и расписание уроков.
+                Контрольный срез по всем темам обязательных и профильных предметов ЕНТ, которые вы зафиксировали в календаре на текущей неделе.
               </p>
             </div>
             <button 
@@ -418,7 +431,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
       {!loading && mode === "lesson_theory" && lessonData && (
         <div className="space-y-6">
           <div className="bg-slate-900 text-white p-6 rounded-2xl border border-slate-800 shadow-xl">
-            <h4 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 border-b border-indigo-500/20 pb-2">Этап 1: Теория и конспект ИИ</h4>
+            <h4 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 border-b border-indigo-500/20 pb-2">Этап 1: Теория и конспект ИИ ({currentSubject})</h4>
             <div className="space-y-1">
               {renderCleanContent(lessonData.theory)}
             </div>
@@ -437,7 +450,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
         </div>
       )}
 
-      {/* ЭКРАН УРОКА: ЭТАП 2 - ЗАКРЕПЛЕНИЕ (ПРАКТИКА) */}
+      {/* ЭКРАН УРОКА: ЭТАП 2 - ПРАКТИКА */}
       {!loading && mode === "lesson_practice" && lessonData && (
         <div className="space-y-6">
           <div className="bg-slate-50 border p-5 rounded-2xl">
@@ -500,7 +513,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
           <div className="text-4xl">🎉</div>
           <h3 className="text-xl font-black text-slate-900">Урок успешно завершен!</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Ты ответил правильно на <span className="font-bold text-indigo-600">{lessonScore} из 3</span> вопросов. Материал зафиксирован в твоей матрице знаний.
+            Ты ответил правильно на <span className="font-bold text-indigo-600">{lessonScore} из 3</span> вопросов. Данные внесены в твою матрицу прогресса.
           </p>
           <button 
             onClick={finishLessonSave}
@@ -515,7 +528,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose }) => {
       {!loading && mode === "mock_exam" && (
         <div className="space-y-6">
           <div className="bg-indigo-900 text-white p-4 rounded-xl text-xs font-bold">
-            ⚠️ Внимание: Идет комплексный срез знаний за неделю. Ответьте на все вопросы для формирования корректной рекомендации ИИ.
+            ⚠️ Комплексный срез знаний недели: тесты сформированы ИИ на основе тем вашего календаря за последние дни.
           </div>
           
           <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">

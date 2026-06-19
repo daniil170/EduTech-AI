@@ -15,7 +15,7 @@ export const Dashboard = () => {
     <div className="min-h-screen bg-slate-50/50 font-sans text-slate-900 selection:bg-indigo-500 selection:text-white">
       
       {/* ХЕДЕР ПАНЕЛИ */}
-      <nav className="border-b border-slate-200/60 px-6 py-4 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-30 shadow-sm shadow-slate-100/40">
+      <nav className="border-b border-slate-200/60 px-6 py-4 flex justify-between items-center bg-white backdrop-blur-md sticky top-0 z-30 shadow-sm shadow-slate-100/40">
         <div className="flex items-center gap-2 font-black text-xl tracking-tight">
           <span className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-black shadow-md shadow-indigo-200">E</span>
           EduTrack <span className="text-indigo-600">AI</span>
@@ -174,24 +174,24 @@ export const Dashboard = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-white/5 border border-white/10 p-8 rounded-3xl space-y-4 backdrop-blur-sm">
+            <div className="bg-white border border-white/10 p-8 rounded-3xl space-y-4 backdrop-blur-sm">
               <h4 className="font-bold text-lg text-indigo-400">⚡ Смарт-аналитика успеваемости</h4>
               <div className="space-y-3 font-sans text-xs">
-                <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                <div className="flex justify-between items-center p-3 bg-white rounded-xl border border-white/5">
                   <span className="text-slate-300">Пройдено тем госпрограммы РК:</span>
                   <span className="font-bold text-white">18 / 45</span>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                <div className="flex justify-between items-center p-3 bg-white rounded-xl border border-white/5">
                   <span className="text-slate-300">Решено тестовых задач ИИ:</span>
                   <span className="font-bold text-white">248 задач</span>
                 </div>
-                <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden mt-2">
+                <div className="w-full bg-white h-2 rounded-full overflow-hidden mt-2">
                   <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full w-[40%] rounded-full"></div>
                 </div>
               </div>
             </div>
           </div>
-          <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-indigo-600/20 rounded-full blur-3xl"></div>
+          <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-indigo-600 rounded-full blur-3xl"></div>
         </section>
 
         {/* НОВЫЙ БЛОК: ЧАСТО ЗАДАВАЕМЫЕ ВОПРОСЫ (FAQ) */}
@@ -230,7 +230,7 @@ export const Dashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="absolute top-0 right-0 -mt-12 -mr-12 w-40 h-40 bg-white/10 rounded-full blur-xl"></div>
+            <div className="absolute top-0 right-0 -mt-12 -mr-12 w-40 h-40 bg-white rounded-full blur-xl"></div>
             <div className="absolute bottom-0 left-0 -mb-12 -ml-12 w-40 h-40 bg-purple-500/20 rounded-full blur-xl"></div>
           </div>
         </section>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { auth, db } from "../../../app/providers/Firebase/firebase";
+import { GEMINI_API_KEY } from "../../../shared/config/gemini";
 import { signOut } from "firebase/auth";
 import {
   doc,
@@ -11,9 +12,10 @@ import {
   addDoc,
   writeBatch,
 } from "firebase/firestore";
-import { ExamPrep } from "./ExamPrep";
-import { MockExam } from "./MockExam";
-import { AiLearningCore } from "./AiLearningCore";
+import { ExamPrep } from "../../../widgets/ExamPrep";
+import { MockExam } from "../../../widgets/MockExam";
+import { AiLearningCore } from "../../../widgets/AiLearningCore";
+import { InteractiveCalendar } from "../../../widgets/InteractiveCalendar";
 import {
   generateAiPromptForSimilarTask,
   entDatabase,
@@ -154,6 +156,21 @@ export const Workspace = () => {
 
   const [onboardingStep, setOnboardingStep] = useState("select_combo");
 
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem("theme") === "dark" || 
+      (!("theme" in localStorage) && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [isDarkMode]);
+
   const [studentStats, setStudentStats] = useState(() => {
     try {
       const currentUser = auth.currentUser;
@@ -254,17 +271,12 @@ export const Workspace = () => {
     }
   });
 
-  const [geminiKey, setGeminiKey] = useState(
-    localStorage.getItem("gemini_api_key") || "",
+  const [geminiKey] = useState(
+    GEMINI_API_KEY || localStorage.getItem("gemini_api_key") || "",
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [calendarEvents, setCalendarEvents] = useState([]);
-  const [isAddEventOpen, setIsAddEventOpen] = useState(false);
-  const [newEventTitle, setNewEventTitle] = useState("");
-  const [newEventTime, setNewEventTime] = useState("12:00");
-  const [newEventDate, setNewEventDate] = useState("");
-
   const [selectedCombo, setSelectedCombo] = useState("");
   const [onboardingSaving, setOnboardingSaving] = useState(false);
 
@@ -297,14 +309,10 @@ export const Workspace = () => {
   const formatFormulaForKatex = (rawFormula) => {
     if (!rawFormula) return "";
     let clean = rawFormula.toString().trim();
-    if (clean.startsWith("$$") && clean.endsWith("$$"))
-      clean = clean.slice(2, -2);
-    else if (clean.startsWith("$") && clean.endsWith("$"))
-      clean = clean.slice(1, -1);
-    if (clean.startsWith("\\[") && clean.endsWith("\\]"))
-      clean = clean.slice(2, -2);
-    if (clean.startsWith("\\(") && clean.endsWith("\\)"))
-      clean = clean.slice(2, -2);
+    if (clean.startsWith("$$") && clean.endsWith("$$")) clean = clean.slice(2, -2);
+    else if (clean.startsWith("$") && clean.endsWith("$")) clean = clean.slice(1, -1);
+    if (clean.startsWith("\\[") && clean.endsWith("\\]")) clean = clean.slice(2, -2);
+    if (clean.startsWith("\\(") && clean.endsWith("\\)")) clean = clean.slice(2, -2);
     return clean.trim();
   };
 
@@ -318,26 +326,26 @@ export const Workspace = () => {
   const renderMixedContent = (text) => {
     if (!text) return null;
     const parts = text.split(/(\$[^$]+\$)/g);
-    if (parts.length === 1) {
-      if (hasMathContent(text)) {
-        try {
-          return <InlineMath math={formatFormulaForKatex(text)} />;
-        } catch {
-          return <span>{text}</span>;
-        }
-      }
-      return <span>{text}</span>;
-    }
+    
     return (
       <>
         {parts.map((part, i) => {
           if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
             try {
-              return <InlineMath key={i} math={part.slice(1, -1)} />;
+              return <InlineMath key={i} math={formatFormulaForKatex(part)} />;
+            } catch {
+              return <span key={i} className="text-amber-500">{part}</span>;
+            }
+          }
+          
+          if (hasMathContent(part)) {
+            try {
+              return <InlineMath key={i} math={formatFormulaForKatex(part)} />;
             } catch {
               return <span key={i}>{part}</span>;
             }
           }
+          
           return <span key={i}>{part}</span>;
         })}
       </>
@@ -425,7 +433,6 @@ export const Workspace = () => {
     };
   };
 
-  // Оптимизированный ИИ-генератор на основе Few-Shot шаблонов из entBase
   const handleGenerateTask = async () => {
     setTasksGenerating(true);
     setTaskChecked(false);
@@ -754,6 +761,7 @@ export const Workspace = () => {
           topic: randomTopic,
           time: "16:00",
           date: dateStr,
+          type: "lesson",
           studentId: user.uid,
           createdAt: new Date().toISOString(),
         });
@@ -836,6 +844,85 @@ export const Workspace = () => {
         messageSuffix = "на ближайшие 2 дня (мягкий режим)";
       }
 
+      // 1. Попытка сгенерировать детальное расписание через реальный ИИ Gemini
+      if (geminiKey) {
+        try {
+          const daysLeftText = studentStats.daysToUnt ? ` (осталось дней до ЕНТ: ${studentStats.daysToUnt})` : "";
+          const prompt = `Спланируй детальное расписание ЕНТ-подготовки для ученика ${studentStats.grade}${daysLeftText}.
+Ученик имеет следующие предметы и текущую успеваемость:
+${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n")}
+
+Твоя задача — сгенерировать ровно ${scheduledCount} учебных занятий на ближайшие дни (начиная с сегодня).
+Для каждого занятия выбери конкретный предмет из списка слабых предметов, выбери конкретную тему, подходящую для ЕНТ, определи тип активности (например: 'Разбор теории', 'Практика задач', 'Тестирование', 'Работа над ошибками') и укажи время (в диапазоне с 14:00 до 20:00, например: '15:30').
+Сделай заголовки занятий («title») мотивирующими и предметно-ориентированными (например, 'Разбор формул: Синусы и Косинусы', 'Практика ЕНТ: Образование Казахского ханства' вместо общего 'AI Отработка').
+
+Ответ верни строго в формате JSON без markdown-разметки (без \`\`\`json):
+{
+  "schedule": [
+    {
+      "dateOffset": 0, // число: 0 - сегодня, 1 - завтра, 2 - послезавтра и т.д.
+      "subject": "Название предмета",
+      "topic": "Название темы",
+      "title": "Тип активности: Название темы",
+      "time": "ЧЧ:ММ"
+    }
+  ]
+}`;
+
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseMimeType: "application/json" },
+              }),
+            }
+          );
+
+          if (!response.ok) throw new Error("API call failed");
+          const resData = await response.json();
+          let text = resData.candidates[0].content.parts[0].text;
+          text = text.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
+          const parsed = JSON.parse(text);
+
+          if (parsed.schedule && parsed.schedule.length > 0) {
+            const batch = writeBatch(db);
+            parsed.schedule.forEach(item => {
+              const targetDay = new Date(today);
+              targetDay.setDate(today.getDate() + (item.dateOffset || 0));
+              const dateStr = targetDay.toISOString().split("T")[0];
+
+              const docRef = doc(collection(db, "calendar"));
+              batch.set(docRef, {
+                title: item.title,
+                subject: item.subject,
+                topic: item.topic,
+                time: item.time || "15:00",
+                date: dateStr,
+                type: "lesson",
+                completed: false,
+                studentId: user.uid,
+                createdAt: new Date().toISOString()
+              });
+            });
+
+            await batch.commit();
+            alert(
+              `🤖 AI успешно спланировал детальное расписание ${messageSuffix} по вашим слабым темам! Проверьте календарь.`
+            );
+            return;
+          }
+        } catch (err) {
+          console.warn("AI Auto-schedule error, falling back to local generation:", err);
+        }
+      }
+
+      // 2. Локальный генератор (работает бесплатно / оффлайн) с детализированными заголовками
+      const actions = ["Практика ЕНТ", "Теория и формулы", "Тестирование", "Работа над ошибками"];
+      const batch = writeBatch(db);
+
       for (let i = 0; i < scheduledCount; i++) {
         const targetDay = new Date(today);
         targetDay.setDate(today.getDate() + i);
@@ -844,17 +931,23 @@ export const Workspace = () => {
         const sub = weakSubjects[i % weakSubjects.length];
         const topics = getTopicsForSubject(sub.name);
         const topic = topics[Math.floor(Math.random() * topics.length)];
+        const action = actions[i % actions.length];
 
-        await addDoc(collection(db, "calendar"), {
-          title: `AI Отработка: ${sub.name}`,
+        const docRef = doc(collection(db, "calendar"));
+        batch.set(docRef, {
+          title: `${action}: ${topic}`,
           subject: sub.name,
           topic: topic,
           time: "15:00",
           date: dateStr,
+          type: "lesson",
+          completed: false,
           studentId: user.uid,
           createdAt: new Date().toISOString(),
         });
       }
+
+      await batch.commit();
 
       alert(
         `🤖 С учетом того, что вы учитесь в ${studentStats.grade}${studentStats.daysToUnt ? ` и до ЕНТ осталось всего ${studentStats.daysToUnt} дн.` : ""}, AI спланировал тренировки ${messageSuffix} по вашим слабым темам! Проверьте календарь.`,
@@ -879,24 +972,6 @@ export const Workspace = () => {
     );
     return () => unsubscribe();
   }, [user]);
-
-  const handleAddCalendarEvent = async (e) => {
-    e.preventDefault();
-    if (!newEventTitle.trim() || !newEventDate || !user) return;
-    try {
-      await addDoc(collection(db, "calendar"), {
-        title: newEventTitle,
-        time: newEventTime,
-        date: newEventDate,
-        studentId: user.uid,
-        createdAt: new Date().toISOString(),
-      });
-      setNewEventTitle("");
-      setIsAddEventOpen(false);
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const handleGoalClick = async (goalId) => {
     if (!studentStats || !user || !studentStats.weeklyGoals) return;
@@ -948,7 +1023,7 @@ export const Workspace = () => {
     }
     return {
       title: "Пройти практику ИИ",
-      desc: "Создайте индивидуальную задачу с помощью ИИ-помощника для закрепления знаний по любой выбранной теме.",
+      desc: "Создайте individualную задачу с помощью ИИ-помощника для закрепления знаний по любой выбранной теме.",
       btnText: "Начать практику",
       action: () => setActiveTab("tasks"),
     };
@@ -960,7 +1035,7 @@ export const Workspace = () => {
   if (loading) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden font-sans select-none">
-        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
+        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-600 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
         <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-purple-600/10 rounded-full filter blur-[100px] animate-pulse pointer-events-none"></div>
 
         <div className="relative flex flex-col items-center z-10">
@@ -1011,7 +1086,7 @@ export const Workspace = () => {
     if (onboardingStep === "select_combo") {
       return (
         <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-6 sm:p-12 font-sans relative overflow-hidden">
-          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/10 rounded-full blur-[120px]"></div>
+          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600 rounded-full blur-[120px]"></div>
           <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-600/10 rounded-full blur-[120px]"></div>
 
           <header className="relative z-10 flex items-center justify-between w-full max-w-4xl mx-auto">
@@ -1038,7 +1113,7 @@ export const Workspace = () => {
                 Выбери своё направление ЕНТ
               </h1>
               <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-                На основе твоего выбора AI построит individualный план занятий,
+                На основе твоего выбора AI построит индивидуальный план занятий,
                 расписание в календаре и сгенерирует задачи для тренировок.
               </p>
             </div>
@@ -1102,7 +1177,7 @@ export const Workspace = () => {
                   onClick={() => setSelectedCombo(combo.name)}
                   className={`p-5 rounded-2xl border text-left transition-all duration-200 flex flex-col justify-between gap-3 group relative overflow-hidden ${
                     selectedCombo === combo.name
-                      ? "bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10"
+                      ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/10"
                       : "bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60"
                   }`}
                 >
@@ -1358,8 +1433,17 @@ export const Workspace = () => {
                 ? "Тренажер"
                 : "Раздел"}
           </span>
-          <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-200/40 px-3 py-1.5 rounded-xl">
-            <span className="text-xs font-bold text-slate-700">{userName}</span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200:bg-slate-700 transition"
+              title="Переключить тему"
+            >
+              {isDarkMode ? "🌙" : "☀️"}
+            </button>
+            <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-200/40 px-3 py-1.5 rounded-xl">
+              <span className="text-xs font-bold text-slate-700">{userName}</span>
+            </div>
           </div>
         </header>
 
@@ -1493,7 +1577,7 @@ export const Workspace = () => {
                   )}
                 </div>
                 <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-6 rounded-3xl text-white flex flex-col justify-between shadow-xl">
-                  <span className="text-[9px] bg-white/20 border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase w-fit">
+                  <span className="text-[9px] bg-white border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase w-fit">
                     Рекомендация ИИ
                   </span>
                   <h3 className="text-xl font-black mt-4 leading-tight">
@@ -1730,155 +1814,40 @@ export const Workspace = () => {
           )}
 
           {activeTab === "calendar" && (
-            <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h1 className="text-2xl font-black text-slate-900">
-                    📅 Интерактивное расписание
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Управляйте планом занятий и дедлайнов.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleAiAutoSchedule}
-                    className="bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm"
-                  >
-                    🤖 AI Планировщик ЕНТ
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNewEventDate(new Date().toISOString().split("T")[0]);
-                      setIsAddEventOpen(true);
-                    }}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-indigo-700 transition"
-                  >
-                    + Добавить событие
-                  </button>
-                </div>
-              </div>
-              {isAddEventOpen && (
-                <form
-                  onSubmit={handleAddCalendarEvent}
-                  className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 max-w-md"
-                >
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase">
-                      Название события
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newEventTitle}
-                      onChange={(e) => setNewEventTitle(e.target.value)}
-                      placeholder="Повторить тригонометрию"
-                      className="w-full border px-3 py-1.5 rounded-xl text-xs mt-1"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase">
-                        Дата
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={newEventDate}
-                        onChange={(e) => setNewEventDate(e.target.value)}
-                        className="w-full border px-3 py-1.5 rounded-xl text-xs mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase">
-                        Время
-                      </label>
-                      <input
-                        type="time"
-                        required
-                        value={newEventTime}
-                        onChange={(e) => setNewEventTime(e.target.value)}
-                        className="w-full border px-3 py-1.5 rounded-xl text-xs mt-1"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold"
-                    >
-                      Создать
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddEventOpen(false)}
-                      className="bg-slate-200 text-slate-700 px-4 py-1.5 rounded-xl text-xs font-bold"
-                    >
-                      Отмена
-                    </button>
-                  </div>
-                </form>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
-                {(() => {
-                  const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-                  return Array.from({ length: 7 }, (_, i) => {
-                    const d = new Date();
-                    d.setDate(d.getDate() + i);
-                    const dateStr = d.toISOString().split("T")[0];
-                    const dayEvents = calendarEvents.filter(
-                      (ev) => ev.date === dateStr,
-                    );
-                    return (
-                      <div
-                        key={i}
-                        className="border border-slate-100 p-4 rounded-2xl bg-slate-50/50 min-h-[160px]"
-                      >
-                        <p className="text-xs font-bold text-slate-700 border-b pb-1 mb-2">
-                          {weekdays[d.getDay()]} {d.getDate()}
-                        </p>
-                        <div className="space-y-1.5">
-                          {dayEvents.map((ev) => (
-                            <div
-                              key={ev.id}
-                              className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-700 p-1.5 rounded-md flex flex-col justify-between"
-                            >
-                              <div>
-                                <span className="font-mono block opacity-70">
-                                  {ev.time}
-                                </span>
-                                <span
-                                  className="font-bold block truncate"
-                                  title={ev.title}
-                                >
-                                  {ev.title}
-                                </span>
-                              </div>
-                              {ev.subject && ev.topic && (
-                                <button
-                                  onClick={() => {
-                                    setTasksSubject(ev.subject);
-                                    setTasksTopic(ev.topic);
-                                    setActiveTab("tasks");
-                                  }}
-                                  className="mt-1.5 w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded py-0.5 text-[8px] font-black text-center transition-all shadow-sm cursor-pointer"
-                                >
-                                  🚀 Тренировать
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                          {dayEvents.length === 0 && (
-                            <p className="text-[9px] text-slate-300 italic pt-2">
-                              Свободно
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
+            <div className="h-full">
+              <InteractiveCalendar 
+                events={calendarEvents}
+                onAddEvent={async (evt) => {
+                  try {
+                    await addDoc(collection(db, "calendar"), {
+                      studentId: user.uid,
+                      title: evt.title,
+                      date: evt.date,
+                      time: evt.time || "12:00",
+                      type: evt.type || "lesson",
+                      completed: false,
+                      createdAt: new Date().toISOString()
+                    });
+                  } catch (e) {
+                    console.error("Error adding event: ", e);
+                  }
+                }}
+                onAutoSchedule={handleAiAutoSchedule}
+                onToggleComplete={async (eventId, completed) => {
+                  try {
+                    await updateDoc(doc(db, "calendar", eventId), { completed });
+                  } catch (e) {
+                    console.error("Error toggling event completion:", e);
+                  }
+                }}
+                onEventClick={(evt) => {
+                  if (evt.subject && evt.topic) {
+                    setTasksSubject(evt.subject);
+                    setTasksTopic(evt.topic);
+                    setActiveTab("tasks");
+                  }
+                }}
+              />
             </div>
           )}
 
@@ -1979,78 +1948,74 @@ export const Workspace = () => {
               </div>
             </div>
             <div className="space-y-4">
-              <div className="space-y-1">
+              <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 p-4 rounded-2xl text-xs flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="font-bold text-emerald-800 flex items-center gap-1">
+                    <span>👑</span> EduTrack Premium
+                  </p>
+                  <p className="text-[10px] text-emerald-600/80 font-semibold uppercase tracking-wider">
+                    Подписка активна
+                  </p>
+                </div>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold">
+                  БЕЗЛИМИТНЫЙ ИИ
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                  API-ключ Gemini
+                  Дней до ЕНТ
                 </label>
                 <input
-                  type="password"
-                  placeholder="AIzaSy..."
-                  value={geminiKey}
-                  onChange={(e) => {
-                    setGeminiKey(e.target.value);
-                    localStorage.setItem("gemini_api_key", e.target.value);
+                  type="number"
+                  placeholder="Например: 120"
+                  value={studentStats?.daysToUnt || ""}
+                  onChange={async (e) => {
+                    const val = e.target.value ? parseInt(e.target.value, 10) : "";
+                    const updatedStats = { ...studentStats, daysToUnt: val };
+                    setStudentStats(updatedStats);
+                    try {
+                      localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
+                      await updateDoc(doc(db, "users", user.uid), { daysToUnt: val });
+                    } catch (err) {
+                      console.warn("Deferred Firestore save:", err);
+                    }
                   }}
-                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-indigo-500 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
                 />
               </div>
-              <div className="bg-indigo-50/50 border border-indigo-100/60 p-4 rounded-2xl text-[10px] leading-relaxed text-indigo-900 space-y-1">
-                <p className="font-bold">Как получить ключ бесплатно?</p>
-                <p>
-                  1. Перейдите в{" "}
-                  <a
-                    href="https://aistudio.google.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-bold"
-                  >
-                    Google AI Studio
-                  </a>
-                  .
-                </p>
-                <p>
-                  2. Авторизуйтесь и нажмите <strong>«Get API Key»</strong>.
-                </p>
-                <p>3. Скопируйте ключ и вставьте его в поле выше.</p>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                  Класс обучения
+                </label>
+                <select
+                  value={studentStats?.grade || "11 класс"}
+                  onChange={async (e) => {
+                    const val = e.target.value;
+                    const updatedStats = { ...studentStats, grade: val };
+                    setStudentStats(updatedStats);
+                    try {
+                      localStorage.setItem(`cached_student_stats_${user.uid}`, JSON.stringify(updatedStats));
+                      await updateDoc(doc(db, "users", user.uid), { grade: val });
+                    } catch (err) {
+                      console.warn("Deferred Firestore save:", err);
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-all text-slate-800"
+                >
+                  <option value="9 класс">9 класс</option>
+                  <option value="10 класс">10 класс</option>
+                  <option value="11 класс">11 класс</option>
+                </select>
               </div>
             </div>
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => {
-                  if (!geminiKey) {
-                    alert("Пожалуйста, сначала введите API-ключ.");
-                    return;
-                  }
-                  fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        contents: [
-                          { parts: [{ text: "Ответь ровно одним словом OK" }] },
-                        ],
-                      }),
-                    },
-                  )
-                    .then((res) => {
-                      if (!res.ok) throw new Error();
-                      return res.json();
-                    })
-                    .then(() =>
-                      alert("Успешно! API-ключ проверен и готов к работе."),
-                    )
-                    .catch(() => alert("Ошибка проверки ключа."));
-                }}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-xs font-bold transition-all"
-              >
-                Проверить
-              </button>
-              <button
                 onClick={() => setIsSettingsOpen(false)}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all"
               >
-                Сохранить
+                Готово
               </button>
             </div>
           </div>

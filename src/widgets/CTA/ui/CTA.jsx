@@ -19,7 +19,7 @@ export const CTA = ({ onAuthClick }) => {
               </button>
             </div>
           </div>
-          <div className="absolute top-0 right-0 -mt-12 -mr-12 w-40 h-40 bg-white/10 rounded-full blur-xl"></div>
+          <div className="absolute top-0 right-0 -mt-12 -mr-12 w-40 h-40 bg-white rounded-full blur-xl"></div>
           <div className="absolute bottom-0 left-0 -mb-12 -ml-12 w-40 h-40 bg-purple-500/20 rounded-full blur-xl"></div>
         </div>
       </div>
