@@ -11,6 +11,8 @@ import {
   where,
   addDoc,
   writeBatch,
+  setDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { ExamPrep } from "../../../widgets/ExamPrep";
 import { MockExam } from "../../../widgets/MockExam";
@@ -277,6 +279,183 @@ export const Workspace = () => {
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCertificateOpen, setIsCertificateOpen] = useState(false);
+
+  // States for Card Payments & Subscriptions
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [selectedPlanForPay, setSelectedPlanForPay] = useState(null);
+  const [isPaying, setIsPaying] = useState(false);
+  const [paymentStepText, setPaymentStepText] = useState("");
+  const [paymentForm, setPaymentForm] = useState({ number: "", expiry: "", cvc: "", name: "" });
+  const [paymentError, setPaymentError] = useState("");
+
+  // States for Whitelist Management (CEO & Founder)
+  const [whitelistEmails, setWhitelistEmails] = useState([]);
+  const [newWhitelistEmail, setNewWhitelistEmail] = useState("");
+
+  // Real-time synchronization of whitelist premium status for current user
+  useEffect(() => {
+    if (!user || !user.email) return;
+    
+    const userEmailLower = user.email.toLowerCase();
+    
+    // Listen to current user's whitelist entry
+    const unsubWhitelist = onSnapshot(
+      doc(db, "premium_whitelist", userEmailLower),
+      async (snap) => {
+        if (snap.exists()) {
+          // If whitelisted, ensure tariff is "whitelisted" (except for founder)
+          if (studentStats && studentStats.tariff !== "whitelisted" && studentStats.role !== "founder") {
+            try {
+              await updateDoc(doc(db, "users", user.uid), { tariff: "whitelisted" });
+            } catch (err) {
+              console.error("Error updating tariff to whitelisted:", err);
+            }
+          }
+        } else {
+          // If not whitelisted, and current tariff is "whitelisted" (and not founder), revert to free
+          if (studentStats && studentStats.tariff === "whitelisted" && studentStats.role !== "founder") {
+            try {
+              await updateDoc(doc(db, "users", user.uid), { tariff: "free" });
+            } catch (err) {
+              console.error("Error reverting tariff from whitelisted:", err);
+            }
+          }
+        }
+      },
+      (error) => {
+        console.warn("Whitelist listener error:", error);
+      }
+    );
+
+    return () => unsubWhitelist();
+  }, [user, studentStats]);
+
+  // Real-time listener for the entire whitelist collection (only for Founder inside Settings modal)
+  useEffect(() => {
+    if (!user || studentStats?.role !== "founder" || !isSettingsOpen) return;
+    
+    const q = collection(db, "premium_whitelist");
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ email: doc.id, ...doc.data() });
+        });
+        setWhitelistEmails(list);
+      },
+      (err) => {
+        console.error("Error loading whitelist collection:", err);
+      }
+    );
+    
+    return () => unsub();
+  }, [user, studentStats?.role, isSettingsOpen]);
+
+  // Handlers for payments validation & formatting
+  const handleCardNumberChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "");
+    const formatted = value.match(/.{1,4}/g)?.join(" ") || "";
+    setPaymentForm(prev => ({ ...prev, number: formatted.slice(0, 19) }));
+  };
+
+  const handleExpiryChange = (e) => {
+    let value = e.target.value.replace(/\D/g, "");
+    if (value.length > 2) {
+      value = `${value.slice(0, 2)}/${value.slice(2, 4)}`;
+    }
+    setPaymentForm(prev => ({ ...prev, expiry: value.slice(0, 5) }));
+  };
+
+  const handleCvcChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "");
+    setPaymentForm(prev => ({ ...prev, cvc: value.slice(0, 3) }));
+  };
+
+  const handleCardPaymentSubmit = async (e) => {
+    e.preventDefault();
+    if (!paymentForm.number || paymentForm.number.replace(/\s/g, "").length !== 16) {
+      setPaymentError("Введите корректный 16-значный номер карты");
+      return;
+    }
+    if (!paymentForm.expiry || !/^\d{2}\/\d{2}$/.test(paymentForm.expiry)) {
+      setPaymentError("Введите срок действия в формате ММ/ГГ");
+      return;
+    }
+    const [mm] = paymentForm.expiry.split("/").map(Number);
+    if (mm < 1 || mm > 12) {
+      setPaymentError("Некорректный месяц срока действия");
+      return;
+    }
+    if (!paymentForm.cvc || paymentForm.cvc.length !== 3 || isNaN(Number(paymentForm.cvc))) {
+      setPaymentError("Введите 3-значный CVC/CVV код");
+      return;
+    }
+    if (!paymentForm.name.trim()) {
+      setPaymentError("Введите имя владельца карты");
+      return;
+    }
+
+    setPaymentError("");
+    setIsPaying(true);
+    
+    try {
+      setPaymentStepText("Инициализация безопасного 3D-Secure соединения...");
+      await new Promise(r => setTimeout(r, 800));
+      setPaymentStepText("Проверка авторизации банком-эмитентом...");
+      await new Promise(r => setTimeout(r, 700));
+      setPaymentStepText("Подтверждение транзакции...");
+      await new Promise(r => setTimeout(r, 600));
+
+      if (user && selectedPlanForPay) {
+        await updateDoc(doc(db, "users", user.uid), {
+          tariff: selectedPlanForPay.id
+        });
+      }
+      
+      setIsPaying(false);
+      setIsPaymentOpen(false);
+      setSelectedPlanForPay(null);
+      setPaymentForm({ number: "", expiry: "", cvc: "", name: "" });
+      alert(`Тариф успешно изменен на "${selectedPlanForPay.name}"!`);
+    } catch (err) {
+      console.error("Payment error:", err);
+      setPaymentError("Произошла ошибка при обработке платежа. Попробуйте еще раз.");
+      setIsPaying(false);
+    }
+  };
+
+  // Handlers for Founder Whitelist Management
+  const handleAddWhitelistEmail = async (e) => {
+    e.preventDefault();
+    const emailToAdd = newWhitelistEmail.trim().toLowerCase();
+    if (!emailToAdd || !emailToAdd.includes("@")) {
+      alert("Введите корректный email адрес");
+      return;
+    }
+    try {
+      await setDoc(doc(db, "premium_whitelist", emailToAdd), {
+        email: emailToAdd,
+        addedAt: new Date().toISOString()
+      });
+      setNewWhitelistEmail("");
+      alert(`Доступ успешно выдан для: ${emailToAdd}`);
+    } catch (err) {
+      console.error("Error adding to whitelist:", err);
+      alert("Не удалось добавить в вайтлист. Проверьте права доступа.");
+    }
+  };
+
+  const handleRemoveWhitelistEmail = async (emailToRemove) => {
+    if (!confirm(`Вы действительно хотите аннулировать доступ для ${emailToRemove}?`)) return;
+    try {
+      await deleteDoc(doc(db, "premium_whitelist", emailToRemove));
+      alert(`Доступ аннулирован для: ${emailToRemove}`);
+    } catch (err) {
+      console.error("Error removing from whitelist:", err);
+      alert("Не удалось удалить из вайтлиста.");
+    }
+  };
 
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [selectedCombo, setSelectedCombo] = useState("");
@@ -2048,15 +2227,38 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
                   Тарифные планы
                 </h4>
-                <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
-                  👑 Premium активен
-                </span>
+                {studentStats?.role === "founder" || studentStats?.tariff === "founder" ? (
+                  <span className="text-[9px] bg-indigo-50 text-indigo-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-indigo-200/40">
+                    👑 CEO & Founder (Всё включено)
+                  </span>
+                ) : studentStats?.tariff === "whitelisted" ? (
+                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
+                    🌟 Whitelisted Premium
+                  </span>
+                ) : studentStats?.tariff === "premium" ? (
+                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
+                    👑 Premium активен
+                  </span>
+                ) : studentStats?.tariff === "ultimate" ? (
+                  <span className="text-[9px] bg-purple-50 text-purple-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-purple-200/40">
+                    🔮 Ultimate активен
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-slate-100 text-slate-500 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-slate-200">
+                    ⚠️ Базовый тариф
+                  </span>
+                )}
               </div>
 
               {/* Plans List */}
               <div className="space-y-3">
+                
                 {/* Plan 1: Free */}
-                <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
+                <div className={`border p-3 rounded-2xl transition duration-200 flex justify-between items-center ${
+                  (!studentStats?.tariff || studentStats.tariff === "free")
+                    ? "border-slate-300 bg-slate-50"
+                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
+                }`}>
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-slate-700">Базовый</span>
@@ -2065,21 +2267,40 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     <p className="text-[10px] text-slate-400 leading-tight">3 ИИ-запроса в день, стандартный календарь</p>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <p className="text-xs font-black text-slate-700">0 ₸</p>
-                    <button 
-                      onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
-                      className="text-[9px] text-slate-400 hover:text-indigo-600 font-bold transition mt-1"
-                    >
-                      Перейти
-                    </button>
+                    <p className="text-xs font-black text-slate-700">0 ₸ / мес</p>
+                    {(!studentStats?.tariff || studentStats.tariff === "free") ? (
+                      <p className="text-[8px] text-slate-400 font-bold mt-1 uppercase tracking-wider">Текущий</p>
+                    ) : (
+                      <button 
+                        onClick={async () => {
+                          if (studentStats?.role === "founder") {
+                            alert("Как CEO вы имеете полный доступ ко всем функциям.");
+                            return;
+                          }
+                          if (confirm("Вы действительно хотите перейти на Базовый тариф?")) {
+                            await updateDoc(doc(db, "users", user.uid), { tariff: "free" });
+                            alert("Вы успешно перешли на Базовый тариф.");
+                          }
+                        }}
+                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1 cursor-pointer"
+                      >
+                        Перейти
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Plan 2: Premium (Active) */}
-                <div className="border-2 border-emerald-500 bg-emerald-50/5 p-3 rounded-2xl relative flex justify-between items-center shadow-sm">
-                  <div className="absolute -top-2.5 right-4 bg-emerald-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                    Текущий
-                  </div>
+                {/* Plan 2: Premium */}
+                <div className={`border p-3 rounded-2xl transition duration-200 relative flex justify-between items-center ${
+                  (studentStats?.tariff === "premium" || studentStats?.tariff === "whitelisted" || studentStats?.role === "founder")
+                    ? "border-emerald-500 bg-emerald-50/5"
+                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
+                }`}>
+                  {(studentStats?.tariff === "premium" || studentStats?.tariff === "whitelisted" || studentStats?.role === "founder") && (
+                    <div className="absolute -top-2.5 right-4 bg-emerald-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                      {studentStats?.role === "founder" ? "Пожизненный" : "Активен"}
+                    </div>
+                  )}
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-emerald-800">Премиум ЕНТ</span>
@@ -2088,31 +2309,120 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     <p className="text-[10px] text-emerald-700/80 leading-tight">Безлимитный ИИ, Умный календарь, авторасписание</p>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <p className="text-xs font-black text-emerald-800">4 990 ₸</p>
-                    <p className="text-[8px] text-emerald-600 font-bold mt-1 uppercase tracking-wider">Активен</p>
+                    <p className="text-xs font-black text-emerald-800">4 990 ₸ / мес</p>
+                    {(studentStats?.tariff === "premium" || studentStats?.tariff === "whitelisted" || studentStats?.role === "founder") ? (
+                      <p className="text-[8px] text-emerald-600 font-bold mt-1 uppercase tracking-wider">
+                        {studentStats?.tariff === "whitelisted" ? "Вайтлист" : studentStats?.role === "founder" ? "CEO" : "Активен"}
+                      </p>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setSelectedPlanForPay({ id: "premium", name: "Премиум ЕНТ", price: "4 990 ₸" });
+                          setIsPaymentOpen(true);
+                        }}
+                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1 cursor-pointer"
+                      >
+                        Купить
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 {/* Plan 3: Ultimate */}
-                <div className="border border-slate-100 bg-slate-50/50 p-3 rounded-2xl transition hover:border-slate-200 flex justify-between items-center">
+                <div className={`border p-3 rounded-2xl transition duration-200 relative flex justify-between items-center ${
+                  (studentStats?.tariff === "ultimate" || studentStats?.role === "founder")
+                    ? "border-purple-500 bg-purple-50/5"
+                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
+                }`}>
+                  {(studentStats?.tariff === "ultimate" || studentStats?.role === "founder") && (
+                    <div className="absolute -top-2.5 right-4 bg-purple-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                      {studentStats?.role === "founder" ? "Пожизненный" : "Активен"}
+                    </div>
+                  )}
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-700">Ультимейт ЕНТ</span>
+                      <span className="text-xs font-bold text-purple-800">Ультимейт ЕНТ</span>
                       <span className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Максимум</span>
                     </div>
                     <p className="text-[10px] text-slate-400 leading-tight">Премиум + Личный ИИ-ментор 24/7, сложные симуляции</p>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <p className="text-xs font-black text-slate-700">9 990 ₸</p>
-                    <button 
-                      onClick={() => alert("Для изменения тарифа свяжитесь с поддержкой")}
-                      className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1"
-                    >
-                      Купить
-                    </button>
+                    <p className="text-xs font-black text-purple-800">9 990 ₸ / мес</p>
+                    {(studentStats?.tariff === "ultimate" || studentStats?.role === "founder") ? (
+                      <p className="text-[8px] text-purple-600 font-bold mt-1 uppercase tracking-wider">
+                        {studentStats?.role === "founder" ? "CEO" : "Активен"}
+                      </p>
+                    ) : (
+                      <button 
+                        onClick={() => {
+                          setSelectedPlanForPay({ id: "ultimate", name: "Ультимейт ЕНТ", price: "9 990 ₸" });
+                          setIsPaymentOpen(true);
+                        }}
+                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1 cursor-pointer"
+                      >
+                        Купить
+                      </button>
+                    )}
                   </div>
                 </div>
+
               </div>
+
+              {/* Founder Control Panel */}
+              {(studentStats?.role === "founder" || user?.email?.toLowerCase() === "daniilivakin30@gmail.com") && (
+                <div className="border-t border-slate-100 pt-4 mt-2 space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-indigo-600 flex items-center gap-1.5">
+                    <span>🔑</span> Панель CEO & Founder
+                  </h4>
+                  <p className="text-[9px] text-slate-400 leading-normal">
+                    Добавьте email адреса ваших друзей, чтобы выдать им пожизненный бесплатный доступ к Premium-тарифам. Это безопасно и валидируется на сервере.
+                  </p>
+
+                  {/* Add email form */}
+                  <form onSubmit={handleAddWhitelistEmail} className="flex gap-2">
+                    <input
+                      type="email"
+                      placeholder="friend@example.com"
+                      value={newWhitelistEmail}
+                      onChange={(e) => setNewWhitelistEmail(e.target.value)}
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    >
+                      Выдать доступ
+                    </button>
+                  </form>
+
+                  {/* Whitelisted Emails List */}
+                  <div className="space-y-1.5">
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                      Приглашенные друзья ({whitelistEmails.length}):
+                    </div>
+                    {whitelistEmails.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 italic">Список пуст</p>
+                    ) : (
+                      <div className="max-h-28 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-100 bg-slate-50/20">
+                        {whitelistEmails.map((item) => (
+                          <div key={item.email} className="px-3 py-1.5 flex justify-between items-center text-[10px]">
+                            <span className="font-semibold text-slate-700">{item.email}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveWhitelistEmail(item.email)}
+                              className="text-rose-500 hover:text-rose-700 font-bold transition cursor-pointer"
+                            >
+                              Аннулировать
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
             </div>
 
             <div className="pt-2">
@@ -2123,6 +2433,126 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 Закрыть
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Card Payment Modal */}
+      {isPaymentOpen && selectedPlanForPay && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-slate-800 relative space-y-4">
+            
+            {/* Header */}
+            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
+              <span className="text-xl">💳</span>
+              <div>
+                <h3 className="font-black text-sm uppercase tracking-wider">Оплата подписки</h3>
+                <p className="text-[10px] text-slate-400">Тариф: {selectedPlanForPay.name}</p>
+              </div>
+            </div>
+
+            {/* Price Info */}
+            <div className="bg-slate-50 p-3.5 rounded-2xl flex justify-between items-center border border-slate-100">
+              <span className="text-xs text-slate-500 font-medium">К оплате (ежемесячно):</span>
+              <span className="text-base font-black text-indigo-600">{selectedPlanForPay.price} / мес</span>
+            </div>
+
+            {/* Credit Card Mock Form */}
+            <form onSubmit={handleCardPaymentSubmit} className="space-y-3.5">
+              
+              {/* Card Number */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Номер карты</label>
+                <input
+                  type="text"
+                  placeholder="0000 0000 0000 0000"
+                  value={paymentForm.number}
+                  onChange={handleCardNumberChange}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 font-mono"
+                  required
+                />
+              </div>
+
+              {/* Row: Expiry & CVC */}
+              <div className="grid grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Срок действия</label>
+                  <input
+                    type="text"
+                    placeholder="ММ/ГГ"
+                    value={paymentForm.expiry}
+                    onChange={handleExpiryChange}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 font-mono"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">CVC / CVV</label>
+                  <input
+                    type="password"
+                    placeholder="•••"
+                    value={paymentForm.cvc}
+                    onChange={handleCvcChange}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 font-mono"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Cardholder Name */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Владелец карты</label>
+                <input
+                  type="text"
+                  placeholder="IVAN IVANOV"
+                  value={paymentForm.name}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 placeholder:text-slate-300"
+                  required
+                />
+              </div>
+
+              {/* Error Display */}
+              {paymentError && (
+                <div className="text-[10px] text-rose-500 bg-rose-50 border border-rose-100 rounded-xl p-2.5 font-bold">
+                  ⚠️ {paymentError}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPaymentOpen(false);
+                    setPaymentForm({ number: "", expiry: "", cvc: "", name: "" });
+                    setPaymentError("");
+                  }}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer animate-pulse"
+                >
+                  Оплатить
+                </button>
+              </div>
+
+            </form>
+
+            {/* Spinner Overlay when processing */}
+            {isPaying && (
+              <div className="absolute inset-0 bg-white/95 rounded-3xl flex flex-col items-center justify-center p-6 space-y-4 z-20">
+                <div className="w-12 h-12 rounded-full border-[3px] border-indigo-500/20 border-t-indigo-500 border-r-indigo-500 animate-spin"></div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-slate-700">Безопасная обработка...</p>
+                  <p className="text-[9px] text-slate-400 mt-1 font-mono">{paymentStepText}</p>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}

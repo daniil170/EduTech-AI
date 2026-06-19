@@ -20,6 +20,17 @@ function App() {
 
         try {
           const docSnap = await getDoc(userDocRef);
+          const userEmailLower = currentUser.email ? currentUser.email.toLowerCase() : "";
+          const isFounderEmail = userEmailLower === "daniilivakin30@gmail.com";
+
+          // Проверяем, есть ли пользователь в вайтлисте приглашенных друзей
+          let isWhitelisted = false;
+          if (userEmailLower) {
+            const whitelistDocRef = doc(db, "premium_whitelist", userEmailLower);
+            const whitelistSnap = await getDoc(whitelistDocRef);
+            isWhitelisted = whitelistSnap.exists();
+          }
+
           if (!docSnap.exists()) {
             const savedGrade = localStorage.getItem("selected_grade") || "11 класс";
             const savedDaysToUnt = localStorage.getItem("selected_days_to_unt") || "";
@@ -29,7 +40,8 @@ function App() {
 
             await setDoc(userDocRef, {
               email: currentUser.email,
-              role: "student",
+              role: isFounderEmail ? "founder" : "student",
+              tariff: isFounderEmail ? "founder" : (isWhitelisted ? "whitelisted" : "free"),
               grade: savedGrade,
               daysToUnt: savedDaysToUnt ? parseInt(savedDaysToUnt, 10) : "",
               examType: "ЕНТ",
@@ -73,6 +85,24 @@ function App() {
                 { id: "act-1", type: "Система", name: "Добро пожаловать в EduTrack AI! Начните подготовку с прохождения диагностического теста.", score: "+0 опыта", time: "Только что" }
               ]
             });
+          } else {
+            // Если документ существует, проверяем и синхронизируем роль founder или вайтлист
+            const existingData = docSnap.data();
+            let updates = {};
+
+            if (isFounderEmail && existingData.role !== "founder") {
+              updates.role = "founder";
+              updates.tariff = "founder";
+            } else if (!isFounderEmail && isWhitelisted && existingData.tariff !== "whitelisted") {
+              updates.tariff = "whitelisted";
+            } else if (!isFounderEmail && !isWhitelisted && existingData.tariff === "whitelisted") {
+              // Если друга удалили из вайтлиста, возвращаем базовый тариф
+              updates.tariff = "free";
+            }
+
+            if (Object.keys(updates).length > 0) {
+              await setDoc(userDocRef, updates, { merge: true });
+            }
           }
         } catch (err) {
           console.error("Ошибка при проверке/создании документа пользователя (возможно офлайн):", err);

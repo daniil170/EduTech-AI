@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Правила для коллекции пользователей
+    match /users/{userId} {
+      // Пользователь может читать и писать только свой профиль
+      // Основатель (founder) может обновлять чужие профили (для выдачи/снятия ролей)
+      allow read: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder');
+      allow write: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder');
+    }
+
+    // Правила для вайтлиста премиум-пользователей
+    match /premium_whitelist/{email} {
+      // Любой авторизованный пользователь может читать вайтлист (для синхронизации)
+      allow read: if request.auth != null;
+      // Писать и удалять записи в вайтлисте может ТОЛЬКО основатель (role == 'founder')
+      allow write, delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder';
+    }
+
+    // Правила для календаря
+    match /calendar/{eventId} {
+      // Чтение и запись календаря разрешены авторизованным пользователям
+      allow read, write: if request.auth != null;
+    }
+  }
+}
