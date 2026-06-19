@@ -16,6 +16,7 @@ import { ExamPrep } from "../../../widgets/ExamPrep";
 import { MockExam } from "../../../widgets/MockExam";
 import { AiLearningCore } from "../../../widgets/AiLearningCore";
 import { InteractiveCalendar } from "../../../widgets/InteractiveCalendar";
+import { FinalSimulation } from "../../../widgets/FinalSimulation";
 import {
   generateAiPromptForSimilarTask,
   entDatabase,
@@ -275,6 +276,7 @@ export const Workspace = () => {
     GEMINI_API_KEY || localStorage.getItem("gemini_api_key") || "",
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCertificateOpen, setIsCertificateOpen] = useState(false);
 
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [selectedCombo, setSelectedCombo] = useState("");
@@ -983,51 +985,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
     return () => unsubscribe();
   }, [user]);
 
-  const handleGoalClick = async (goalId, delta = 1) => {
-    if (!studentStats || !user || !studentStats.weeklyGoals) return;
-    const updatedGoals = studentStats.weeklyGoals.map((goal) => {
-      if (goal.id === goalId) {
-        let nextCurrent;
-        if (goal.max === 1) {
-          nextCurrent = goal.current === 0 ? 1 : 0;
-        } else {
-          nextCurrent = Math.max(0, Math.min(goal.current + delta, goal.max));
-        }
-        return { ...goal, current: nextCurrent };
-      }
-      return goal;
-    });
 
-    const totalMax = updatedGoals.reduce((acc, g) => acc + g.max, 0);
-    const totalCurrent = updatedGoals.reduce((acc, g) => acc + g.current, 0);
-    const newProgress = Math.min(
-      totalMax > 0 ? Math.round((totalCurrent / totalMax) * 100) : 0,
-      100,
-    );
-    const clickedGoal = studentStats.weeklyGoals.find((g) => g.id === goalId);
-    const actualDelta = clickedGoal ? (updatedGoals.find(g => g.id === goalId).current - clickedGoal.current) : 0;
-
-    if (actualDelta === 0) return;
-
-    try {
-      await updateDoc(doc(db, "users", user.uid), {
-        weeklyGoals: updatedGoals,
-        overallProgress: newProgress,
-        recentActivity: [
-          {
-            id: crypto.randomUUID(),
-            type: "Практика",
-            name: `Обновление цели: "${clickedGoal?.text}"`,
-            score: `${actualDelta > 0 ? "+" : ""}${actualDelta} к прогрессу`,
-            time: "Только что",
-          },
-          ...(studentStats.recentActivity || []).slice(0, 4),
-        ],
-      });
-    } catch {
-      console.error("Ошибка при обновлении прогресса по целям");
-    }
-  };
 
   const getNextStepInfo = () => {
     if (studentStats?.attentionRequired?.length > 0) {
@@ -1249,6 +1207,31 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
           onClose={() => setOnboardingStep("select_combo")}
           onFinish={async (scorePercent) => {
             await handleFinishDiagnostic(scorePercent, selectedCombo);
+          }}
+        />
+      );
+    }
+
+    if (onboardingStep === "final_exam") {
+      return (
+        <FinalSimulation
+          combo={studentStats?.profileCombination || "Математика и Физика"}
+          userName={userName}
+          geminiKey={geminiKey}
+          onClose={() => setOnboardingStep("")}
+          onFinish={async (score, analysis) => {
+            if (user) {
+              try {
+                await updateDoc(doc(db, "users", user.uid), {
+                  finalExamScore: score,
+                  finalExamAnalysis: analysis,
+                  finalExamPassedAt: new Date().toISOString()
+                });
+              } catch (err) {
+                console.error("Error saving final exam score:", err);
+              }
+            }
+            setOnboardingStep("");
           }}
         />
       );
@@ -1550,12 +1533,9 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2.5 min-w-0">
                               {goal.max === 1 ? (
-                                <input
-                                  type="checkbox"
-                                  checked={isCompleted}
-                                  onChange={() => handleGoalClick(goal.id)}
-                                  className="w-4 h-4 rounded-full border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
+                                <span className={`text-xs shrink-0 font-bold select-none leading-none ${isCompleted ? "text-emerald-500" : "text-slate-300"}`}>
+                                  {isCompleted ? "✓" : "○"}
+                                </span>
                               ) : (
                                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCompleted ? "bg-emerald-500" : "bg-indigo-500 animate-pulse"}`} />
                               )}
@@ -1565,24 +1545,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                             </div>
                             
                             <div className="flex items-center gap-2 shrink-0">
-                              {goal.max > 1 && (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleGoalClick(goal.id, -1)}
-                                    className="w-5 h-5 flex items-center justify-center bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-bold transition-all shadow-sm"
-                                    title="Уменьшить"
-                                  >
-                                    -
-                                  </button>
-                                  <button
-                                    onClick={() => handleGoalClick(goal.id, 1)}
-                                    className="w-5 h-5 flex items-center justify-center bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-bold transition-all shadow-sm"
-                                    title="Увеличить"
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              )}
                               <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                                 {goal.current}/{goal.max}
                               </span>
@@ -1659,6 +1621,73 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     {nextStep.btnText}
                   </button>
                 </div>
+              </div>
+
+              {/* Final Exam & Certificate Block */}
+              <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm space-y-5 relative overflow-hidden">
+                {/* Background decoration */}
+                <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/40 to-transparent pointer-events-none rounded-r-3xl"></div>
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 relative z-10">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">🎓</span>
+                      <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
+                        Финальная аттестация и Сертификат
+                      </h3>
+                      {studentStats?.finalExamScore !== undefined && (
+                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">
+                          Сдано
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
+                      {studentStats?.finalExamScore !== undefined
+                        ? "Поздравляем! Вы прошли итоговую проверку знаний. Ниже представлен подробный анализ от вашего ИИ-наставника."
+                        : "Пройдите итоговую комплексную симуляцию ЕНТ по обязательным и вашим профильным предметам. Результаты будут проанализированы ИИ для оценки готовности к реальному экзамену, после чего вы получите цифровой сертификат курса."}
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    {studentStats?.finalExamScore !== undefined ? (
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setIsCertificateOpen(true)}
+                          className="bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white px-5 py-3 rounded-2xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 animate-pulse"
+                        >
+                          🏆 Открыть Сертификат
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm("Вы уверены, что хотите пересдать финальный экзамен? Предыдущий результат будет удален.")) {
+                              setOnboardingStep("final_exam");
+                            }
+                          }}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-2xl text-xs font-bold transition-all"
+                        >
+                          Пересдать
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setOnboardingStep("final_exam")}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition-all"
+                      >
+                        🚀 Начать симуляцию ЕНТ
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {studentStats?.finalExamScore !== undefined && (
+                  <div className="border border-slate-100 bg-slate-50/50 p-5 rounded-2xl space-y-3 relative z-10">
+                    <div className="flex justify-between items-center text-xs font-black uppercase text-slate-400">
+                      <span>Итоги тестирования</span>
+                      <span className="font-mono text-indigo-600">Результат: {studentStats.finalExamScore} / 140 баллов</span>
+                    </div>
+                    <div className="text-xs text-slate-700 leading-relaxed font-medium whitespace-pre-line bg-white p-4 rounded-xl border border-slate-100/60 shadow-sm">
+                      {studentStats.finalExamAnalysis}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -2090,6 +2119,84 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
               <button
                 onClick={() => setIsSettingsOpen(false)}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isCertificateOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl p-8 shadow-2xl relative border-8 border-double border-amber-500/30 text-center space-y-6 text-slate-800">
+            <button
+              onClick={() => setIsCertificateOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1 print:hidden"
+            >
+              ✕
+            </button>
+            
+            {/* Certificate border decoration */}
+            <div className="absolute inset-2 border border-amber-500/20 rounded-2xl pointer-events-none"></div>
+
+            <div className="space-y-2">
+              <span className="text-4xl text-amber-500">🏆</span>
+              <h2 className="text-2xl font-serif font-black tracking-wide uppercase text-amber-800">
+                Сертификат об окончании курса
+              </h2>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                EduTrack ЕНТ AI • Подготовка к ЕНТ 2027
+              </p>
+            </div>
+
+            <div className="py-6 space-y-4">
+              <p className="text-xs italic text-slate-500">Настоящим подтверждается, что</p>
+              <h3 className="text-xl font-bold text-slate-900 underline decoration-amber-500/40 decoration-2 underline-offset-8">
+                {userName}
+              </h3>
+              <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+                успешно завершил индивидуальную траекторию подготовки по направлению <br />
+                <span className="font-bold text-indigo-600">{studentStats?.profileCombination || "Математика и Физика"}</span>, <br />
+                прошел еженедельные срезы знаний и сдал комплексную финальную симуляцию ЕНТ с результатом
+              </p>
+              <div className="w-fit mx-auto bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-black text-2xl px-6 py-2.5 rounded-2xl shadow-md border border-amber-600/30">
+                {studentStats?.finalExamScore || 0} / 140 баллов
+              </div>
+            </div>
+
+            <div className="flex justify-between items-end pt-8 border-t border-slate-100 max-w-md mx-auto text-left text-[10px]">
+              <div>
+                <p className="text-slate-400 font-bold uppercase">Платформа обучения</p>
+                <p className="font-bold text-slate-700 mt-1">EduTrack AI ЕНТ</p>
+                <p className="text-slate-400">Дата: {studentStats?.finalExamPassedAt ? new Date(studentStats.finalExamPassedAt).toLocaleDateString("ru-RU") : new Date().toLocaleDateString("ru-RU")}</p>
+              </div>
+              <div className="text-center relative">
+                <div className="absolute -top-6 left-4 w-12 h-12 bg-indigo-500/5 rounded-full border border-indigo-500/10 flex items-center justify-center font-serif text-[8px] font-black text-indigo-600/30 select-none uppercase tracking-tight -rotate-12 pointer-events-none">
+                  Разработано Даниилом Ивакиным
+                </div>
+                <p className="text-slate-400 font-bold uppercase">Ведущий ИИ-Куратор</p>
+                <div className="font-serif italic font-bold text-slate-800 mt-1 border-b border-slate-300 pb-0.5 px-4">
+                  Gemini-2.5-Flash
+                </div>
+                <p className="text-[8px] text-slate-400 mt-0.5">Цифровая подпись подтверждена</p>
+              </div>
+            </div>
+
+            {/* Watermark */}
+            <div className="pt-2 text-center text-[8px] text-slate-300 font-bold uppercase tracking-widest select-none pointer-events-none">
+              developed by Ivakin Daniil
+            </div>
+
+            <div className="flex justify-center gap-3 pt-4 print:hidden">
+              <button
+                onClick={() => window.print()}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
+              >
+                🖨️ Распечатать сертификат
+              </button>
+              <button
+                onClick={() => setIsCertificateOpen(false)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-5 py-2.5 rounded-xl text-xs font-bold transition-all"
               >
                 Закрыть
               </button>
