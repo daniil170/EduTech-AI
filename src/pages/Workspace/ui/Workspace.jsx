@@ -5,9 +5,7 @@ import { signOut } from "firebase/auth";
 import { 
   generatePlanGemini, 
   generatePlanLocal, 
-  calculateWeightedProgress,
-  updateTopicMasteryAfterSession,
-  syncPlanStatusesWithMastery
+  calculateWeightedProgress
 } from "../../../shared/data/planGenerator";
 import {
   doc,
@@ -23,6 +21,7 @@ import { ExamPrep } from "../../../widgets/ExamPrep";
 import { MockExam } from "../../../widgets/MockExam";
 import { AiLearningCore } from "../../../widgets/AiLearningCore";
 import { InteractiveCalendar } from "../../../widgets/InteractiveCalendar";
+import { StudentAnalytics } from "../../../widgets/StudentAnalytics/ui/StudentAnalytics";
 import { FinalSimulation } from "../../../widgets/FinalSimulation";
 import { CeoPanel } from "../../../widgets/CeoPanel";
 import { SubscriptionModal } from "../../../features/SubscriptionModal";
@@ -333,14 +332,12 @@ export const Workspace = () => {
         }
       },
       (error) => {
-        console.warn("Whitelist listener error:", error);
+        user.uid && console.warn("Whitelist listener error:", error);
       }
     );
 
     return () => unsubWhitelist();
   }, [user, studentStats]);
-
-
 
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [selectedCombo, setSelectedCombo] = useState("");
@@ -607,31 +604,29 @@ export const Workspace = () => {
       const currentTasksSolved = studentStats.lastActiveDate === todayStr ? (studentStats.dailyTasksSolved || 0) : 0;
 
       // =========================================================
-      // СПРИНТ 3: РАСЧЕТ ЖИВОГО ПОТЕМНОГО МАСТЕРСТВА ИЗ ТРЕНАЖЕРА
+      // РАСЧЕТ ЖИВОГО ПОТЕМНОГО МАСТЕРСТВА ИЗ ТРЕНАЖЕРА
       // =========================================================
       const currentTopicMastery = studentStats?.topicMastery || {};
       const sessionResult = {
         subject: activeTasksSubject,
         topic: activeTasksTopic,
-        score: isCorrect ? 1.0 : 0.0, // Одиночная задача дает 100% или 0% точности
+        score: isCorrect ? 1.0 : 0.0,
         totalQuestions: 1
       };
 
-      // Высчитываем новое скользящее среднее для конкретной темы кодификатора
-      const { updatedMastery } = updateTopicMasteryAfterSession(currentTopicMastery, sessionResult);
+      const { updateTopicMasteryAfterSession, syncPlanStatusesWithMastery, calculateWeightedProgress } = await import("../../../shared/data/planGenerator");
+      const { updatedMastery: liveMastery } = updateTopicMasteryAfterSession(currentTopicMastery, sessionResult);
       
-      // Синхронизируем статусы шагов текущего плана подготовки
       const currentStudyPlan = studentStats?.examPrep?.studyPlan || [];
-      const updatedStudyPlan = syncPlanStatusesWithMastery(currentStudyPlan, updatedMastery);
+      const updatedStudyPlan = syncPlanStatusesWithMastery(currentStudyPlan, liveMastery);
       
-      // Пересчитываем взвешенный прогресс всего плана на основе весов тем ЕНТ
       const nextPlanPercent = calculateWeightedProgress(updatedStudyPlan);
 
       const updateData = {
         dailyTasksSolved: currentTasksSolved + 1,
         lastActiveDate: todayStr,
-        "topicMastery": updatedMastery,
-        "studentStats.topicMastery": updatedMastery,
+        "topicMastery": liveMastery,
+        "studentStats.topicMastery": liveMastery,
         "examPrep.studyPlan": updatedStudyPlan,
         "examPrep.completedPercent": nextPlanPercent,
         "examPrep.updatedAt": new Date().toISOString()
@@ -761,7 +756,7 @@ export const Workspace = () => {
     };
   }, [user]);
 
-const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
+  const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
     if (!user) return;
     setOnboardingStep("generating_plan");
     setOnboardingSaving(true);
@@ -792,7 +787,7 @@ const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
       const now = Date.now();
 
       // ==========================================
-      // ЭТАП 1: ФОРМИРОВАНИЕ ИНДИВИДУАЛЬНОЙ TOPIC MASTERY MAP
+      // ФОРМИРОВАНИЕ ИНДИВИДУАЛЬНОЙ TOPIC MASTERY MAP
       // ==========================================
       const targetTopicMastery = {};
 
@@ -815,7 +810,7 @@ const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
       });
 
       // ==========================================
-      // ЭТАП 2: РАСЧЕТ SUBJECTS MASTERY ДЛЯ ИНТЕРФЕЙСА ДАШБОРДА
+      // РАСЧЕТ SUBJECTS MASTERY ДЛЯ ИНТЕРФЕЙСА ДАШБОРДА
       // ==========================================
       const updatedSubjectsMastery = allCurrentSubjects.map((subjectName, idx) => {
         const topics = targetTopicMastery[subjectName];
@@ -842,7 +837,7 @@ const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
       });
 
       // ==========================================
-      // ЭТАП 3: АВТОМАТИЧЕСКАЯ ГЕНЕРАЦИЯ И ПЛАН СРАЗУ ПОСЛЕ ТЕСТА
+      // АВТОМАТИЧЕСКАЯ ГЕНЕРАЦИЯ И ПЛАН СРАЗУ ПОСЛЕ ТЕСТА
       // ==========================================
       const studentStatsMock = {
         grade: studentStats?.grade || "11 класс",
@@ -862,7 +857,7 @@ const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
       const nextPercent = calculateWeightedProgress(generatedPlanResult.studyPlan);
 
       // ==========================================
-      // ЭТАП 4: СОХРАНЕНИЕ ДАННЫХ И ИНИЦИАЛИЗАЦИЯ КАЛЕНДАРЯ В FIREBASE
+      // СОХРАНЕНИЕ ДАННЫХ И ИНИЦИАЛИЗАЦИЯ КАЛЕНДАРЯ В FIREBASE
       // ==========================================
       const batch = writeBatch(db);
       const today = new Date();
@@ -999,7 +994,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
 {
   "schedule": [
     {
-      "dateOffset": 0, // число: 0 - сегодня, 1 - завтра, 2 - послезавтра и т.д.
+      "dateOffset": 0, 
       "subject": "Название предмета",
       "topic": "Название темы",
       "title": "Тип активности: Название темы",
@@ -1112,9 +1107,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
     return () => unsubscribe();
   }, [user]);
 
-
-
-  // ── Smart CTA: determines next recommended action ──────────────────────────
+  // Smart CTA: determines next recommended action
   const getSmartNextStep = () => {
     if (!studentStats?.hasPassedDiagnostic) {
       return {
@@ -1157,7 +1150,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
   const smartStep = getSmartNextStep();
   const handleLogout = () => signOut(auth);
 
-  // ── Derived dashboard values ─────────────────────────────────────────────────
+  // Derived dashboard values
   const is11Grade = studentStats?.grade === "11 класс";
   const isJuniorGrade =
     studentStats?.grade === "9 класс" || studentStats?.grade === "10 класс";
@@ -1203,7 +1196,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
       const d = new Date(today);
       d.setDate(today.getDate() - i);
       const dateStr = d.toISOString().split("T")[0];
-      // use simple heuristic: mark today and last streak days as active
       const streakDays = studentStats?.streakDays || 0;
       const isActive = i < streakDays;
       grid.push({ date: dateStr, active: isActive });
@@ -1220,7 +1212,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
   const needsReviewTopics = (studentStats?.attentionNeeded || []).filter(
     (t) => t.status === "needs_review"
   );
-  const isInactive = false; // Real implementation would check dates; placeholder
   const hasOverdueTopics = needsReviewTopics.length > 0 || (studentStats?.attentionNeeded?.length || 0) > 3;
 
   if (loading) {
@@ -1304,63 +1295,23 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 Выбери своё направление ЕНТ
               </h1>
               <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-                На основе твоего выбора AI построит индивидуальный план занятий,
+                На основе твоего выбора AI построит индивидуальный plan занятий,
                 расписание в календаре и сгенерирует задачи для тренировок.
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 w-full pt-4 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
               {[
-                {
-                  name: "Математика – Физика",
-                  desc: "Инженерия, IT, Строительство",
-                  icon: "⚙️",
-                },
-                {
-                  name: "Биология – Химия",
-                  desc: "Медицина, Биоинженерия, Экология",
-                  icon: "🧬",
-                },
-                {
-                  name: "Математика – Информатика",
-                  desc: "Программирование, Анализ данных, IT",
-                  icon: "💻",
-                },
-                {
-                  name: "География – Иностранный язык",
-                  desc: "Туризм, Международные отношения",
-                  icon: "🌍",
-                },
-                {
-                  name: "Биология – География",
-                  desc: "Агрономия, Геология",
-                  icon: "🌱",
-                },
-                {
-                  name: "Всемирная история – География",
-                  desc: "Геополитика, Регионоведение",
-                  icon: "🗺️",
-                },
-                {
-                  name: "Всемирная история – Основы права",
-                  desc: "Юриспруденция, Правоохрана",
-                  icon: "⚖️",
-                },
-                {
-                  name: "Казахский язык – Казахская литература",
-                  desc: "Филология, Журналистика",
-                  icon: "✍️",
-                },
-                {
-                  name: "Русский язык – Русская литература",
-                  desc: "Русская филология, Педагогика",
-                  icon: "📚",
-                },
-                {
-                  name: "Творческий экзамен",
-                  desc: "Дизайн, Искусство, Спорт",
-                  icon: "🎨",
-                },
+                { name: "Математика – Физика", desc: "Инженерия, IT, Строительство", icon: "⚙️" },
+                { name: "Биология – Химия", desc: "Медицина, Биоинженерия, Экология", icon: "🧬" },
+                { name: "Математика – Информатика", desc: "Программирование, Анализ данных, IT", icon: "💻" },
+                { name: "География – Иностранный язык", desc: "Туризм, Международные отношения", icon: "🌍" },
+                { name: "Биология – География", desc: "Агрономия, Геология", icon: "🌱" },
+                { name: "Всемирная история – География", desc: "Геополитика, Регионоведение", icon: "🗺️" },
+                { name: "Всемирная история – Основы права", desc: "Юриспруденция, Правоохрана", icon: "⚖️" },
+                { name: "Казахский язык – Казахская литература", desc: "Филология, Журналистика", icon: "✍️" },
+                { name: "Русский язык – Русская литература", desc: "Русская филология, Педагогика", icon: "📚" },
+                { name: "Творческий экзамен", desc: "Дизайн, Искусство, Спорт", icon: "🎨" },
               ].map((combo) => (
                 <button
                   key={combo.name}
@@ -1376,12 +1327,8 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     <span className="text-2xl">{combo.icon}</span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-white">
-                      {combo.name}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      {combo.desc}
-                    </p>
+                    <h4 className="font-bold text-sm text-white">{combo.name}</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">{combo.desc}</p>
                   </div>
                 </button>
               ))}
@@ -1667,7 +1614,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200:bg-slate-700 transition"
+              className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-700 transition"
               title="Переключить тему"
             >
               {isDarkMode ? "🌙" : "☀️"}
@@ -1794,7 +1741,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                       🔒
                     </div>
                     <div className="space-y-2">
-                      <h3 className="text-xl font-black text-slate-900">Анализейбл результатов симуляции</h3>
+                      <h3 className="text-xl font-black text-slate-900">Анализ результатов симуляции</h3>
                       <p className="text-xs text-slate-500 leading-relaxed font-medium">
                         Подробный разбор финальной аттестации и расчет вероятности сдачи доступны только на тарифе <span className="text-indigo-600 font-bold">Ultra</span>.
                       </p>
@@ -1872,7 +1819,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
 
           {activeTab === "dashboard" && (
             <>
-              {/* ── Header: Grade Badge + Profile Direction ── */}
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
                   <h1 className="text-2xl font-black text-slate-900">
@@ -1883,7 +1829,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Profile combination badge */}
                   <div className="bg-white border border-indigo-500/15 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
                     <div className="text-lg">🎓</div>
                     <div>
@@ -1892,7 +1837,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     </div>
                   </div>
 
-                  {/* Grade-specific badge */}
                   {is11Grade ? (
                     <div className="bg-white border border-rose-500/20 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
                       <div className="text-lg">🗓️</div>
@@ -1913,7 +1857,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     </div>
                   )}
 
-                  {/* Streak card with 28-day activity grid */}
                   <div className="bg-white border border-emerald-500/15 rounded-2xl p-3 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="text-lg">🔥</div>
@@ -1922,7 +1865,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                         <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.streakDays || 0} дней</p>
                       </div>
                     </div>
-                    {/* 4×7 activity mini-grid */}
                     <div className="grid grid-cols-7 gap-0.5">
                       {activityGrid.map((day, i) => (
                         <div
@@ -1941,37 +1883,27 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 </div>
               </div>
 
-              {/* ── Alerts ── */}
-              {(hasOverdueTopics || isInactive) && (
+              {hasOverdueTopics && (
                 <div className="space-y-2">
-                  {hasOverdueTopics && (
-                    <div className="flex items-center gap-3 bg-amber-50 border border-amber-200/80 p-3.5 rounded-2xl">
-                      <span className="text-lg shrink-0">⚠️</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black text-amber-800">Есть темы, требующие повторения</p>
-                        <p className="text-[10px] text-amber-600">
-                          {(studentStats?.attentionNeeded?.length || 0)} тем помечены как «нужно повторить».
-                          Отработайте их в ИИ-тренажере.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setActiveTab("tasks")}
-                        className="bg-amber-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shrink-0 hover:bg-amber-600 transition"
-                      >
-                        Отработать
-                      </button>
+                  <div className="flex items-center gap-3 bg-amber-50 border border-amber-200/80 p-3.5 rounded-2xl">
+                    <span className="text-lg shrink-0">⚠️</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black text-amber-800">Есть темы, требующие повторения</p>
+                      <p className="text-[10px] text-amber-600">
+                        {(studentStats?.attentionNeeded?.length || 0)} тем помечены как «нужно повторить».
+                        Отработайте их в ИИ-тренажере.
+                      </p>
                     </div>
-                  )}
-                  {isInactive && (
-                    <div className="flex items-center gap-3 bg-rose-50 border border-rose-200/80 p-3.5 rounded-2xl">
-                      <span className="text-lg shrink-0">💤</span>
-                      <p className="text-xs font-black text-rose-700 flex-1">Вы не решали задачи более 3 дней. Вернитесь к тренировкам!</p>
-                    </div>
-                  )}
+                    <button
+                      onClick={() => setActiveTab("tasks")}
+                      className="bg-amber-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shrink-0 hover:bg-amber-600 transition"
+                    >
+                      Отработать
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* ── Smart CTA Banner ── */}
               <div
                 className={`relative overflow-hidden bg-gradient-to-br ${smartStep.color} rounded-3xl p-6 text-white shadow-xl`}
               >
@@ -1996,17 +1928,15 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 </div>
               </div>
 
-              {/* ── Main Grid Row 1: Readiness + Weekly Goals ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Readiness card */}
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm flex flex-col gap-4">
                   <div className="flex justify-between items-start">
                     <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider">
                       {isJuniorGrade ? "Прогресс программы" : "Готовность к экзамену"}
                     </h3>
-                    {isJuniorGrade ? (
+                    {isJuniorGrade && (
                       <span className="text-[9px] bg-teal-50 text-teal-600 border border-teal-200/60 px-2 py-0.5 rounded-full font-bold">9–10 кл.</span>
-                    ) : null}
+                    )}
                   </div>
                   <div className="text-center">
                     <p className="text-5xl font-black text-indigo-600">
@@ -2022,7 +1952,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                       style={{ width: `${isJuniorGrade ? avgMastery : (studentStats?.overallProgress || 0)}%` }}
                     />
                   </div>
-                  {/* Per-subject readiness breakdown */}
                   {!isJuniorGrade && profileSubjects.length > 0 && (
                     <div className="space-y-2 pt-1 border-t border-slate-100">
                       <p className="text-[9px] font-bold text-slate-400 uppercase">Профильные предметы</p>
@@ -2039,7 +1968,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                       ))}
                     </div>
                   )}
-                  {/* For 9-10: mastery growth stats */}
                   {isJuniorGrade && (
                     <div className="space-y-2 pt-1 border-t border-slate-100">
                       <p className="text-[9px] font-bold text-slate-400 uppercase">Рост по предметам</p>
@@ -2055,7 +1983,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                   )}
                 </div>
 
-                {/* Weekly goals */}
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm md:col-span-2">
                   <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight mb-4">
                     Ежедневные задачи плана
@@ -2098,9 +2025,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 </div>
               </div>
 
-              {/* ── Main Grid Row 2: Topics + AI Forecast ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Study plan top topics */}
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm md:col-span-2 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
@@ -2148,28 +2073,8 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                       ))}
                     </div>
                   )}
-                  {/* Old attentionNeeded fallback if no study plan */}
-                  {topPlanTopics.length === 0 && (studentStats?.attentionNeeded?.length || 0) > 0 && (
-                    <div className="space-y-3">
-                      {studentStats.attentionNeeded.slice(0, 3).map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between gap-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
-                          <div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase">{item.subject}</p>
-                            <p className="text-xs font-bold text-slate-800">{item.topic}</p>
-                          </div>
-                          <button
-                            onClick={() => { setTasksSubject(item.subject); setTasksTopic(item.topic); setActiveTab("tasks"); }}
-                            className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black hover:bg-indigo-700 transition shrink-0"
-                          >
-                            Запустить
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
-                {/* AI Score Forecast (simplified) – 11th grade only, else mastery card */}
                 {is11Grade ? (
                   <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 rounded-3xl text-white flex flex-col justify-between shadow-xl relative overflow-hidden">
                     {!hasUltraAccess && (
@@ -2227,7 +2132,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 )}
               </div>
 
-              {/* ── Final Simulation Block (11th grade only) ── */}
               {is11Grade && (
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm space-y-4 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/40 to-transparent pointer-events-none rounded-r-3xl" />
@@ -2322,28 +2226,15 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
 
                           return (studentStats?.subjectsMastery || []).map((sub) => {
                             let icon = "📚";
-                            if (
-                              sub.name.includes("Математика") ||
-                              sub.name.includes("математическая")
-                            )
-                              icon = "📐";
+                            if (sub.name.includes("Математика") || sub.name.includes("математическая")) icon = "📐";
                             else if (sub.name.includes("Физика")) icon = "⚡";
                             else if (sub.name.includes("Биология")) icon = "🧬";
                             else if (sub.name.includes("Химия")) icon = "🧪";
                             else if (sub.name.includes("История")) icon = "🕌";
-                            else if (sub.name.includes("Информатика"))
-                              icon = "💻";
+                            else if (sub.name.includes("Информатика")) icon = "💻";
                             else if (sub.name.includes("География")) icon = "🌍";
-                            else if (
-                              sub.name.includes("право") ||
-                              sub.name.includes("Право")
-                            )
-                              icon = "⚖️";
-                            else if (
-                              sub.name.includes("язык") ||
-                              sub.name.includes("литература")
-                            )
-                              icon = "✍️";
+                            else if (sub.name.includes("право") || sub.name.includes("Право")) icon = "⚖️";
+                            else if (sub.name.includes("язык") || sub.name.includes("литература")) icon = "✍️";
                             else if (sub.name.includes("чтения")) icon = "📖";
 
                             const isLocked = isFree && sub.name !== activeFreeSubName;
@@ -2663,101 +2554,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
               );
             }
 
-            const activeWeakList = (studentStats?.attentionNeeded?.length > 0)
-              ? studentStats.attentionNeeded
-              : (studentStats?.attentionRequired || []);
-
-            return (
-              <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto">
-                <h1 className="text-2xl font-black text-slate-900">
-                  📈 Сводная аналитика успеваемости
-                </h1>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {studentStats?.subjectsMastery?.map((subject, idx) => (
-                    <div
-                      key={idx}
-                      className="border border-slate-100 p-4 rounded-2xl space-y-2"
-                    >
-                      <p className="text-xs font-bold text-slate-800">
-                        {subject.name}
-                      </p>
-                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${subject.color}`}
-                          style={{ width: `${subject.progress}%` }}
-                        ></div>
-                      </div>
-                      <p className="text-[10px] text-slate-400 uppercase font-mono">
-                        Прогресс: {subject.progress}%
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {studentStats?.tariff === "basic" ? (
-                  <div className="border border-slate-200 bg-slate-50/50 p-6 rounded-2xl text-center relative overflow-hidden">
-                    <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex flex-col items-center justify-center text-center p-4 z-10">
-                      <span className="text-lg">🔒</span>
-                      <p className="text-xs font-black text-slate-700 mt-1">Отслеживание слабых тем и ошибок</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5 leading-normal max-w-xs">
-                        Система автоматического выявления слабых тем и рекомендации для отработки доступны на тарифах Pro и Ultra.
-                      </p>
-                      <button
-                        onClick={() => setIsSettingsOpen(true)}
-                        className="mt-3 px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow hover:bg-indigo-700 transition"
-                      >
-                        Перейти на Pro
-                      </button>
-                    </div>
-                    {/* Blurred mock content behind lock */}
-                    <div className="blur-sm select-none opacity-40 space-y-2">
-                      <p className="text-xs font-bold text-slate-500 text-left">Пример слабой темы:</p>
-                      <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 text-xs">
-                        <div className="text-left">
-                          <span className="font-bold text-slate-800">Квадратные уравнения</span>
-                          <p className="text-[10px] text-slate-400">Алгебра</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  activeWeakList.length > 0 && (
-                    <div className="border border-red-100 bg-red-50/10 p-5 rounded-2xl space-y-3">
-                      <h3 className="font-black text-red-600 text-sm uppercase tracking-wider">
-                        🚨 Проблемы из проверочных работ / Слабые темы:
-                      </h3>
-                      <div className="space-y-2">
-                        {activeWeakList.map((item, idx) => (
-                          <div
-                            key={idx}
-                            className="flex justify-between items-center bg-white p-3 rounded-xl border border-red-50 text-xs"
-                          >
-                            <div>
-                              <span className="font-bold text-slate-800">
-                                {item.topic}
-                              </span>
-                              <p className="text-[10px] text-slate-400">
-                                {item.subject}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setTasksSubject(item.subject);
-                                setTasksTopic(item.topic);
-                                setActiveTab("tasks");
-                              }}
-                              className="bg-red-500 text-white px-3 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:bg-red-600 transition"
-                            >
-                              Отработать в ИИ-Тренажере
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-            );
+            return <StudentAnalytics user={user} userData={studentStats} />;
           })()}
 
           {activeTab === "ceo_panel" && (
@@ -2801,8 +2598,6 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
           onClose={() => setIsCertificateOpen(false)}
         />
       )}
-
-
     </div>
   );
 };
