@@ -3,9 +3,13 @@ import { db } from "../../../app/providers/Firebase/firebase";
 import { doc, updateDoc, collection, getDoc, onSnapshot, setDoc, getDocs, query, where } from "firebase/firestore";
 import { MathRenderer } from "../../../shared/ui/MathRenderer";
 import { getTopicsForSubject } from "../../../shared/data/curriculum";
+import { 
+  updateTopicMasteryAfterSession, 
+  syncPlanStatusesWithMastery,
+  calculateWeightedProgress
+} from "../../../shared/data/planGenerator";
 
-
-// Локальный умный фолбек, адаптирующийся под предмет (исправлен сброс на математику)
+// Локальный умный фолбек, адаптирующийся под предмет
 const getLocalLessonFallback = (subject, topic) => {
   const isHistory = subject.toLowerCase().includes("история");
   
@@ -112,7 +116,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     loadLessons();
   }, [selectedSubjectName]);
 
-
   const renderCleanContent = (rawText, inline = false, className = "") => {
     return <MathRenderer text={rawText} inline={inline} className={className} />;
   };
@@ -140,7 +143,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     setLoading(true);
     setMode("lesson_theory");
 
-    // Fetch 3 questions from questionBank matching this subject and topic
     let dbTasks = [];
     try {
       const qSnap = await getDocs(
@@ -152,7 +154,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
         )
       );
       if (!qSnap.empty && qSnap.docs.length >= 3) {
-        // Pick 3 random matching questions
         const shuffled = [...qSnap.docs].sort(() => 0.5 - Math.random());
         dbTasks = shuffled.slice(0, 3).map(doc => {
           const qContent = doc.data().storageMockContent;
@@ -198,7 +199,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
         if (dbTasks.length === 3) {
           parsed.tasks = dbTasks;
         } else {
-          // Generate tasks dynamically since DB had < 3 questions
           const fallbackTasksPrompt = `Сгенерируй ровно 3 тестовые задачи ЕНТ по теме "${topic}" предмета "${subject}". Верни строго JSON массив: [{"question":"...", "options":["...","...","...","..."], "correct":0, "exp":"..."}]`;
           const tasksResponse = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
@@ -245,7 +245,6 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     }
   };
 
-
   const initLessonState = () => {
     setCurrentTaskIdx(0);
     setSelectedAns(null);
@@ -275,20 +274,18 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     const scorePercent = Math.round((lessonScore / 3) * 100);
     const isCompleted = scorePercent >= 70;
     
-    // Save completion state
     const lessonId = currentLesson ? currentLesson.lessonId : `${currentSubject.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_01_lesson`;
     const lessonDocRef = doc(db, "users", user.uid, "lessonStates", lessonId);
     
     try {
+      // 1. Сохраняем состояние прохождения конкретного урока
       await setDoc(lessonDocRef, {
         lessonId,
         scorePercent,
         isCompleted,
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      console.log(`[Lesson Completion] Saved ${lessonId} -> Score: ${scorePercent}% (Passed: ${isCompleted})`);
       
-      // Calculate updated subject progress
       const tempStates = {
         ...lessonStates,
         [lessonId]: { scorePercent, isCompleted }
@@ -298,43 +295,63 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
       const totalLessons = subjectLessons.length || 5;
       const newProgress = Math.min(100, Math.round((completedCount / totalLessons) * 100));
 
-      const updatedMastery = (userData?.subjectsMastery || []).map((sub) => {
+      const updatedSubjectsMastery = (userData?.subjectsMastery || []).map((sub) => {
         if (sub.name !== currentSubject) return sub;
         return {
           ...sub,
           progress: newProgress,
-          level:
-            newProgress >= 80
-              ? "Продвинутый"
-              : newProgress >= 40
-                ? "Средний"
-                : "Базовый",
+          level: newProgress >= 80 ? "Продвинутый" : newProgress >= 40 ? "Средний" : "Базовый",
         };
       });
+
+      // ==========================================
+      // СПРИНТ 3: ЖИВАЯ ОБРАТНАЯ СВЯЗЬ С ТРЕНАЖЁРА
+      // ==========================================
+      const currentTopicMastery = userData?.topicMastery || {};
+      const sessionResult = {
+        subject: currentSubject,
+        topic: currentTopic,
+        score: lessonScore / 3, // Нормализуем точность от 0.0 до 1.0
+        totalQuestions: 3
+      };
+
+      // А) Пересчитываем карту потемного мастерства (скользящее среднее)
+      const { updatedMastery } = updateTopicMasteryAfterSession(currentTopicMastery, sessionResult);
+
+      // Б) Синхронизируем статусы шагов в плане подготовки на основе измененного мастерства
+      const currentStudyPlan = userData?.examPrep?.studyPlan || [];
+      const updatedStudyPlan = syncPlanStatusesWithMastery(currentStudyPlan, updatedMastery);
+
+      // В) Пересчитываем общий взвешенный прогресс плана по формуле весов кодификатора
+      const nextPercent = calculateWeightedProgress(updatedStudyPlan);
 
       const todayStr = new Date().toLocaleDateString("en-CA");
       const currentTasksSolved = userData?.lastActiveDate === todayStr ? (userData?.dailyTasksSolved || 0) : 0;
 
+      // Записываем все изменения за один атомарный запрос в Firebase
       await updateDoc(userDocRef, {
-        dailyTasksSolved: currentTasksSolved + 3, // Each lesson has 3 tasks
+        dailyTasksSolved: currentTasksSolved + 3,
         lastActiveDate: todayStr,
         overallProgress: Math.min((userData?.overallProgress || 0) + 2, 100),
-        subjectsMastery: updatedMastery,
+        subjectsMastery: updatedSubjectsMastery,
+        "studentStats.topicMastery": updatedMastery, // Для обратной совместимости / структуры
+        "topicMastery": updatedMastery,
+        "examPrep.studyPlan": updatedStudyPlan,
+        "examPrep.completedPercent": nextPercent,
+        "examPrep.updatedAt": new Date().toISOString(),
         recentActivity: [
           {
             id: crypto.randomUUID(),
             type: "ИИ-Урок",
-            name: isCompleted 
-              ? `Пройден урок: ${currentTopic}`
-              : `Попытка прохождения урока: ${currentTopic}`,
-            score: isCompleted
-              ? `+${xpGained} XP (Результат: ${lessonScore}/3)`
-              : `Не сдано (${scorePercent}%) • Повторите попытку`,
+            name: isCompleted ? `Пройден урок: ${currentTopic}` : `Попытка прохождения урока: ${currentTopic}`,
+            score: isCompleted ? `+${xpGained} XP (Результат: ${lessonScore}/3)` : `Не сдано (${scorePercent}%) • Повторите попытку`,
             time: "Только что"
           },
           ...(userData?.recentActivity || []).slice(0, 4)
         ]
       });
+      
+      console.log("[Trainer Loop] Цикл успешно замкнут. TopicMastery и План подготовки адаптированы.");
     } catch (e) {
       console.error("Error saving lesson completion:", e);
     }
@@ -342,9 +359,7 @@ export const AiLearningCore = ({ user, userData, geminiKey, onClose, calendarEve
     setMode("menu");
   };
 
-
   const startWeeklyMock = async () => {
-    // Check daily tasks limit
     const todayStr = new Date().toLocaleDateString("en-CA");
     const currentTasksSolved = userData?.lastActiveDate === todayStr ? (userData?.dailyTasksSolved || 0) : 0;
     const getDailyLimit = (tariff, role) => {
@@ -539,7 +554,7 @@ ${currentWeekTopics.join("\n")}
       {/* HEADER */}
       <div className="flex justify-between items-center border-b pb-4 border-slate-100">
         <div>
-          <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold uppercase tracking-wider">Модуль: AI-Learning Core v2.1</span>
+          <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold uppercase tracking-wider">Модуль: AI-Learning Core v2.2</span>
           <h2 className="text-xl font-black mt-2 text-slate-900">Академические ИИ-Уроки и Пробники</h2>
         </div>
         <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold transition">
@@ -558,7 +573,6 @@ ${currentWeekTopics.join("\n")}
       {!loading && mode === "menu" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-2">
           
-          {/* Левая часть: Предметы и учебная программа */}
           <div className="lg:col-span-2 space-y-6">
             <div>
               <h3 className="font-black text-base text-slate-800">Направления подготовки</h3>
@@ -567,7 +581,6 @@ ${currentWeekTopics.join("\n")}
               </p>
             </div>
 
-            {/* Вкладки предметов */}
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 custom-scrollbar">
               {(userData?.subjectsMastery || []).map((sub) => {
                 const isFree = !userData?.tariff || userData.tariff === "free";
@@ -612,7 +625,6 @@ ${currentWeekTopics.join("\n")}
               })}
             </div>
 
-            {/* Дорожная карта уроков по выбранному предмету */}
             {(() => {
               const activeSubject = (userData?.subjectsMastery || []).find(s => s.name === selectedSubjectName) || (userData?.subjectsMastery || [])[0];
               if (!activeSubject) return <p className="text-xs text-slate-400 italic">Направления подготовки не настроены.</p>;
@@ -708,11 +720,8 @@ ${currentWeekTopics.join("\n")}
 
                     return (
                       <div key={lesson.lessonId} className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl border border-slate-200/60 bg-white shadow-sm hover:shadow-md transition">
-                        
-                        {/* Маркер на временной шкале */}
                         <div className={`absolute -left-[20px] top-[22px] sm:top-1/2 sm:-translate-y-1/2 w-3.5 h-3.5 rounded-full border-2 transition-all ${dotStyle}`} />
                         
-                        {/* Описание темы */}
                         <div className="space-y-1 bg-white">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[10px] text-slate-400 font-bold uppercase">Урок {lesson.order}</span>
@@ -724,7 +733,6 @@ ${currentWeekTopics.join("\n")}
                           )}
                         </div>
 
-                        {/* Кнопка запуска */}
                         <button
                           disabled={isBtnDisabled}
                           onClick={() => {

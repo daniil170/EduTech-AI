@@ -1,62 +1,101 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db } from "../../../app/providers/Firebase/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { 
   generatePlanGemini, 
-  mergePlans, 
+  generatePlanLocal,
   calculateWeightedProgress 
 } from "../../../shared/data/planGenerator";
 
 export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => {
   const [loading, setLoading] = useState(false);
+  const [hoveredPriorityId, setHoveredPriorityId] = useState(null);
 
-  // Load plan data from student stats in Firestore
   const studyPlan = studentStats?.examPrep?.studyPlan || [];
   const recommendations = studentStats?.examPrep?.recommendations || [];
   const completedPercent = studentStats?.examPrep?.completedPercent || 0;
   const is11th = studentStats?.grade === "11 класс" || !studentStats?.grade;
 
-  // Save updated plan state to Firebase
-  const savePlanToFirestore = async (updatedPlan, updatedRecs, nextPercent) => {
+  useEffect(() => {
+    const checkAndRefreshPlanUrgency = async () => {
+      if (!user || !studentStats?.examPrep) return;
+
+      const lastUpdate = studentStats?.examPrep?.updatedAt;
+      const now = Date.now();
+
+      if (!lastUpdate || (now - new Date(lastUpdate).getTime()) > 1000 * 60 * 60 * 24) {
+        const refreshedPlan = generatePlanLocal(studentStats, studentStats?.examPrep);
+        const userDocRef = doc(db, "users", user.uid);
+        try {
+          await updateDoc(userDocRef, {
+            "examPrep.studyPlan": refreshedPlan.studyPlan,
+            "examPrep.completedPercent": refreshedPlan.completedPercent || 0,
+            "examPrep.updatedAt": new Date().toISOString()
+          });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    };
+
+    checkAndRefreshPlanUrgency();
+  }, [studentStats, user]);
+
+  const savePlanToFirestore = async (updatedPlan, updatedRecs, nextPercent, nextVersion = 1) => {
     if (!user) return;
     const userDocRef = doc(db, "users", user.uid);
     try {
       await updateDoc(userDocRef, {
         "examPrep.studyPlan": updatedPlan,
         "examPrep.recommendations": updatedRecs,
-        "examPrep.completedPercent": nextPercent
+        "examPrep.completedPercent": nextPercent,
+        "examPrep.planVersion": nextVersion,
+        "examPrep.updatedAt": new Date().toISOString()
       });
     } catch (e) {
-      console.error("Ошибка сохранения плана подготовки в Firestore:", e);
+      console.error(e);
     }
   };
 
-  // Rebuild/generate plan using AI or local formula engine
   const handleGenerateAdvancedPlan = async () => {
     setLoading(true);
     try {
-      // Call generator (uses Gemini flash if key available, else local priority formulas)
-      const newPlan = await generatePlanGemini(studentStats, geminiKey);
-      
-      // Merge: retain done/completed steps from the old plan
-      const merged = mergePlans(studyPlan, newPlan);
-      
-      // Calculate weighted progress
-      const nextPercent = calculateWeightedProgress(merged.studyPlan);
-      
-      await savePlanToFirestore(merged.studyPlan, merged.recommendations, nextPercent);
+      const regeneratedData = await generatePlanGemini(studentStats, geminiKey, studentStats?.examPrep);
+      const nextPercent = calculateWeightedProgress(regeneratedData.studyPlan);
+      await savePlanToFirestore(
+        regeneratedData.studyPlan, 
+        regeneratedData.recommendations, 
+        nextPercent,
+        regeneratedData.planVersion
+      );
     } catch (e) {
-      console.error("Ошибка при генерации или обновлении плана:", e);
+      console.error(e);
     } finally {
       setLoading(false);
     }
   };
 
-  // Manually toggle step completion
+  const handleStartPracticeTracked = async (step) => {
+    const updatedPlan = studyPlan.map(s => {
+      if (s.id === step.id && s.status !== "done") {
+        return { ...s, status: "in_progress" };
+      }
+      return s;
+    });
+    
+    const currentVersion = studentStats?.examPrep?.planVersion || 1;
+    await savePlanToFirestore(updatedPlan, recommendations, completedPercent, currentVersion);
+    
+    if (onStartPractice) {
+      onStartPractice(step.topic, step.subject, step.id);
+    }
+  };
+
   const toggleStepStatus = async (stepId) => {
     const updatedPlan = studyPlan.map(step => {
       if (step.id === stepId) {
-        const nextStatus = (step.status === "completed" || step.status === "done") ? "upcoming" : "completed";
+        const isCurrentDone = step.status === "completed" || step.status === "done";
+        const nextStatus = isCurrentDone ? "pending" : "done";
         return { 
           ...step, 
           status: nextStatus,
@@ -68,7 +107,8 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
     });
 
     const nextPercent = calculateWeightedProgress(updatedPlan);
-    await savePlanToFirestore(updatedPlan, recommendations, nextPercent);
+    const currentVersion = studentStats?.examPrep?.planVersion || 1;
+    await savePlanToFirestore(updatedPlan, recommendations, nextPercent, currentVersion);
   };
 
   return (
@@ -93,14 +133,13 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
         </button>
       </div>
 
-      {/* 9-10th Grade info banner */}
       {!is11th && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-indigo-150 p-4 rounded-2xl text-xs text-indigo-800 leading-normal flex items-start gap-2.5">
-          <span className="text-sm">💡</span>
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-5 rounded-2xl text-xs text-emerald-900 leading-relaxed flex items-start gap-3 shadow-sm">
+          <span className="text-xl">💡</span>
           <div>
-            <p className="font-bold">Программа накопления знаний</p>
-            <p className="text-indigo-950/70 mt-0.5">
-              Для 9-10 классов план фокусируется на последовательном освоении тем и интервальном повторении без жестких таймеров ЕНТ. Мы распределили нагрузку по рекомендуемым учебным неделям.
+            <p className="font-black text-sm">Накопительная программа обучения (9-10 классы)</p>
+            <p className="text-emerald-950/70 mt-1 font-medium">
+              Ваш план полностью освобожден от жестких дедлайнов и таймеров обратного отсчета до ЕНТ. Система фокусируется на постепенном, глубоком разборе кодификатора по недельным спринтам. Нагрузка распределена равномерно (70% времени уделяется изучению новых понятий, 30% — автоматическому интервальному повторению пройденного материала).
             </p>
           </div>
         </div>
@@ -115,10 +154,10 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Steps List */}
+          
           <div className="md:col-span-2 space-y-3">
             <h3 className="font-black text-sm text-slate-800 uppercase tracking-tight mb-2">
-              Дорожная карта занятий
+              Дорожная карта занятий (Версия: {studentStats?.examPrep?.planVersion || 1})
             </h3>
             {studyPlan.length === 0 ? (
               <div className="text-center py-10 border border-dashed border-slate-200 rounded-2xl bg-slate-50/20">
@@ -134,70 +173,107 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
               studyPlan.map((step) => {
                 const isCompleted = step.status === "completed" || step.status === "done";
                 const isNeedsReview = step.status === "needs_review";
+                const isInProgress = step.status === "in_progress";
                 
                 return (
                   <div
                     key={step.id}
-                    className={`p-4 rounded-2xl border transition flex items-center justify-between gap-4 ${
+                    className={`p-4 rounded-2xl border transition flex flex-col space-y-3 ${
                       isCompleted 
-                        ? "bg-emerald-50/30 border-emerald-200/80" 
+                        ? "bg-emerald-50/20 border-emerald-200/60" 
                         : isNeedsReview 
-                          ? "bg-rose-50/30 border-rose-200/80"
-                          : "bg-slate-50/50 border-slate-200/60 hover:border-slate-350"
+                          ? "bg-rose-50/30 border-rose-200/80 animate-pulse"
+                          : isInProgress
+                            ? "bg-indigo-50/40 border-indigo-300 shadow-sm"
+                            : "bg-slate-50/50 border-slate-200/60 hover:border-slate-300"
                     }`}
                   >
-                    <div className="flex items-start gap-3 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={isCompleted}
-                        onChange={() => toggleStepStatus(step.id)}
-                        className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer shrink-0"
-                      />
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <h4 className={`text-xs font-bold truncate ${isCompleted ? "line-through text-slate-400" : "text-slate-800"}`}>
-                            {step.name}
-                          </h4>
-                          
-                          {/* Badges */}
-                          {isNeedsReview && (
-                            <span className="text-[7px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider">
-                              Повторить ⚠️
-                            </span>
-                          )}
-                          {step.autoCompleted && isCompleted && (
-                            <span className="text-[7px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider">
-                              Закрыто ИИ 🤖
-                            </span>
-                          )}
-                          {step.priority !== undefined && !isCompleted && (
-                            <span 
-                              title="Приоритет: (1 - Уровень знаний) × Вес темы × Фактор срочности"
-                              className="text-[7px] bg-indigo-50 border border-indigo-500/10 text-indigo-600 px-1.5 py-0.5 rounded-md font-bold"
-                            >
-                              Приоритет: {Math.round(step.priority * 100)}%
-                            </span>
-                          )}
+                    <div className="flex items-center justify-between gap-4 w-full">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isCompleted}
+                          onChange={() => toggleStepStatus(step.id)}
+                          className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer shrink-0"
+                        />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h4 className={`text-xs font-bold truncate ${isCompleted ? "line-through text-slate-400" : "text-slate-800"}`}>
+                              {step.name}
+                            </h4>
+                            
+                            {isNeedsReview && (
+                              <span className="text-[7px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider">
+                                Повторить ⚠️
+                              </span>
+                            )}
+                            {isInProgress && (
+                              <span className="text-[7px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider animate-pulse">
+                                В процессе 🔥
+                              </span>
+                            )}
+                            {step.autoCompleted && isCompleted && (
+                              <span className="text-[7px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider">
+                                Закрыто ИИ 🤖
+                              </span>
+                            )}
+                            {step.priority !== undefined && !isCompleted && (
+                              <div className="relative inline-block">
+                                <span 
+                                  onMouseEnter={() => setHoveredPriorityId(step.id)}
+                                  onMouseLeave={() => setHoveredPriorityId(null)}
+                                  className="text-[7px] bg-indigo-50 border border-indigo-500/10 text-indigo-600 px-1.5 py-0.5 rounded-md font-bold cursor-help transition hover:bg-indigo-100"
+                                >
+                                  Приоритет: {Math.round(step.priority * 100)}%
+                                </span>
+                                {hoveredPriorityId === step.id && (
+                                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-slate-900 text-white text-[9px] p-2 rounded-lg shadow-xl z-30 leading-normal font-medium">
+                                    Вес темы на ЕНТ + Текущий уровень пробелов + Фактор времени и повторения.
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-medium">{step.date}</p>
                         </div>
-                        <p className="text-[10px] text-slate-400 font-medium">{step.date}</p>
                       </div>
+
+                      {!isCompleted && (
+                        <button
+                          onClick={() => handleStartPracticeTracked(step)}
+                          className={`px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition shrink-0 cursor-pointer hover:shadow ${
+                            isInProgress 
+                              ? "bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700" 
+                              : "bg-white border border-slate-200 text-slate-700 hover:text-indigo-600 hover:border-indigo-400"
+                          }`}
+                        >
+                          {isInProgress ? "Продолжить" : "Отработать"}
+                        </button>
+                      )}
                     </div>
 
-                    {!isCompleted && (
-                      <button
-                        onClick={() => onStartPractice(step.topic, step.subject)}
-                        className="bg-white border border-slate-200 text-slate-700 hover:text-indigo-600 hover:border-indigo-400 px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition shrink-0 cursor-pointer hover:shadow"
-                      >
-                        Отработать
-                      </button>
-                    )}
+                    <div className="flex items-center justify-between border-t border-slate-100/70 pt-2 text-[9px] font-bold text-slate-400">
+                      <div className="flex items-center gap-1.5">
+                        <span>Источник темы:</span>
+                        {step.source === "trainer_feedback" ? (
+                          <span className="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">Аналитика тренажёра ⚡</span>
+                        ) : step.source === "manual" ? (
+                          <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Вручную учеником 👤</span>
+                        ) : (
+                          <span className="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">Стартовый тест 📝</span>
+                        )}
+                      </div>
+                      {step.subject && (
+                        <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{step.subject}</span>
+                      )}
+                    </div>
+
                   </div>
                 );
               })
             )}
           </div>
 
-          {/* Sidebar Stats & Recommendations */}
           <div className="space-y-6">
             <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800/80 shadow-md">
               <h3 className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">
@@ -213,7 +289,7 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
                 ></div>
               </div>
               <p className="text-[9px] text-slate-400 mt-2.5 leading-normal">
-                Прогресс рассчитывается с учетом веса каждой темы на реальном ЕНТ, а не просто количества галочек.
+                Прогресс рассчитывается на основе веса каждой темы в структуре ЕНТ прошлых лет, а не от простого количества чекбоксов.
               </p>
             </div>
 
@@ -227,16 +303,25 @@ export const ExamPrep = ({ studentStats, geminiKey, user, onStartPractice }) => 
                 </p>
               ) : (
                 <ul className="space-y-2.5">
-                  {recommendations.map((rec, i) => (
-                    <li key={i} className="text-[10px] text-slate-600 leading-relaxed flex items-start gap-2 font-medium">
-                      <span className="text-indigo-500 shrink-0 mt-0.5">•</span>
-                      <span>{rec}</span>
-                    </li>
-                  ))}
+                  {recommendations.map((rec, i) => {
+                    const isAlert = rec.includes("⚠️");
+                    return (
+                      <li 
+                        key={i} 
+                        className={`text-[10px] leading-relaxed flex items-start gap-2 font-medium p-2 rounded-lg ${
+                          isAlert ? "bg-rose-50 border border-rose-100 text-rose-700" : "text-slate-600"
+                        }`}
+                      >
+                        {!isAlert && <span className="text-indigo-500 shrink-0 mt-0.5">•</span>}
+                        <span>{rec}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
           </div>
+
         </div>
       )}
     </div>

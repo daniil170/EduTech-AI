@@ -1,4 +1,3 @@
-// Plan Generator Engine for UNT Preparation
 import { defaultTopics, getTopicWeight } from "./codificator";
 
 export const calculatePriority = (level, weight, lastTested) => {
@@ -6,8 +5,8 @@ export const calculatePriority = (level, weight, lastTested) => {
   if (lastTested) {
     const lastTestedDate = new Date(lastTested);
     if (!isNaN(lastTestedDate.getTime())) {
-      const days = (new Date() - lastTestedDate) / (1000 * 60 * 60 * 24);
-      urgencyFactor = 1.0 + Math.min(2.0, days / 30); // Up to 3.0 urgency factor after 60 days
+      const days = (Date.now() - lastTestedDate) / (1000 * 60 * 60 * 24);
+      urgencyFactor = 1.0 + Math.min(2.0, days / 30);
     }
   }
   return (1.0 - (level || 0.0)) * (weight || 0.05) * urgencyFactor;
@@ -16,7 +15,6 @@ export const calculatePriority = (level, weight, lastTested) => {
 export const calculateWeightedProgress = (studyPlan, subjectName) => {
   if (!studyPlan || studyPlan.length === 0) return 0;
   
-  // Filter steps by subject if provided
   const steps = subjectName 
     ? studyPlan.filter(s => s.subject === subjectName)
     : studyPlan;
@@ -38,12 +36,60 @@ export const calculateWeightedProgress = (studyPlan, subjectName) => {
   return Math.round((completedWeight / totalWeight) * 100);
 };
 
-export const generatePlanLocal = (studentStats) => {
+export const mergePlans = (oldPlan, newSteps, newRecommendations, currentVersion = 1) => {
+  if (!oldPlan || oldPlan.length === 0) {
+    return { studyPlan: newSteps, recommendations: newRecommendations, planVersion: currentVersion };
+  }
+  
+  const completedStepsMap = new Map();
+  oldPlan.forEach(step => {
+    if (step.status === "done" || step.status === "completed" || step.status === "needs_review") {
+      const key = `${step.subject}::${step.topic}`;
+      completedStepsMap.set(key, step);
+    }
+  });
+  
+  const mergedSteps = newSteps.map(newStep => {
+    const key = `${newStep.subject}::${newStep.topic}`;
+    if (completedStepsMap.has(key)) {
+      const oldStep = completedStepsMap.get(key);
+      return {
+        ...newStep,
+        status: oldStep.status,
+        autoCompleted: oldStep.autoCompleted || false,
+        source: oldStep.source || "diagnostic"
+      };
+    }
+    return newStep;
+  });
+  
+  completedStepsMap.forEach((oldStep, key) => {
+    const alreadyInMerged = mergedSteps.some(s => `${s.subject}::${s.topic}` === key);
+    if (!alreadyInMerged) {
+      mergedSteps.push(oldStep);
+    }
+  });
+  
+  return {
+    studyPlan: mergedSteps,
+    recommendations: newRecommendations,
+    planVersion: currentVersion + 1
+  };
+};
+
+export const generatePlanLocal = (studentStats, currentExamPrep = null) => {
   const subjects = studentStats?.subjectsMastery?.map(s => s.name) || ["История Казахстана"];
   const topicMastery = studentStats?.topicMastery || {};
   const is11th = studentStats?.grade === "11 класс" || !studentStats?.grade;
   const daysToUnt = studentStats?.daysToUnt || 180;
   
+  let dailyBudgetMinutes = 120;
+  if (studentStats?.schoolScheduleType === "first_shift") {
+    dailyBudgetMinutes = 180;
+  } else if (studentStats?.schoolScheduleType === "second_shift") {
+    dailyBudgetMinutes = 90;
+  }
+
   const allTopics = [];
   
   subjects.forEach(sub => {
@@ -68,30 +114,29 @@ export const generatePlanLocal = (studentStats) => {
     });
   });
   
-  // Sort all topics by priority desc
   allTopics.sort((a, b) => b.priority - a.priority);
   
-  const studyPlan = [];
+  const rawSteps = [];
   const recommendations = [];
   
-  // Recommendations generation
   if (allTopics.length > 0) {
     const weakest = allTopics[0];
     recommendations.push(`Сделайте упор на тему «${weakest.topic}» (${weakest.subject}), так как ее приоритет отработки самый высокий.`);
     recommendations.push("Используйте Умный календарь для ежедневного распределения нагрузки.");
     recommendations.push("Решайте не менее 5-10 задач в день по слабым темам для тренировки долговременной памяти.");
   }
+
+  if (is11th && allTopics.length > daysToUnt) {
+    recommendations.unshift(`⚠️ Внимание: Количество оставшихся тем (${allTopics.length}) превышает количество дней до ЕНТ (${daysToUnt}). ИИ прогнозирует критический дефицит времени. Увеличьте лимит ежедневных занятий!`);
+  }
   
-  // Deadlines assignment
   let currentDateOffset = 0;
   const today = new Date();
   
   allTopics.forEach((item, index) => {
-    const stepId = `step-${index + 1}`;
+    const stepId = `step-${index + 1}-${Date.now()}`;
     
     if (is11th) {
-      // 11th grade: strict deadlines based on priority
-      // Proportional days allocation (minimum 2 days, maximum 10 days per topic)
       const totalPriority = allTopics.reduce((sum, t) => sum + t.priority, 0) || 1;
       const daysAllocated = Math.max(2, Math.min(10, Math.round((item.priority / totalPriority) * daysToUnt)));
       
@@ -102,49 +147,59 @@ export const generatePlanLocal = (studentStats) => {
       const day = String(targetDate.getDate()).padStart(2, '0');
       const month = String(targetDate.getMonth() + 1).padStart(2, '0');
       
-      studyPlan.push({
+      rawSteps.push({
         id: stepId,
         subject: item.subject,
         topic: item.topic,
         name: `Изучение и отработка темы: ${item.topic} (${item.subject})`,
         priority: Number(item.priority.toFixed(3)),
         date: `Срок: ${day}.${month} (через ${currentDateOffset} дн.)`,
-        status: "upcoming",
+        status: "pending",
         source: "diagnostic",
         autoCompleted: false
       });
     } else {
-      // 9-10th grades: Recommended week (timeline without unt countdown)
-      const weekIndex = Math.floor(index / 2) + 1; // 2 topics per week
-      studyPlan.push({
+      const weekIndex = Math.floor(index / 2) + 1;
+      rawSteps.push({
         id: stepId,
         subject: item.subject,
         topic: item.topic,
         name: `Закрепление темы: ${item.topic} (${item.subject})`,
         priority: Number(item.priority.toFixed(3)),
         date: `Рекомендуемая неделя: Неделя ${weekIndex}`,
-        status: "upcoming",
+        status: "pending",
         source: "diagnostic",
         autoCompleted: false
       });
     }
   });
   
-  return { studyPlan, recommendations };
+  const currentVersion = currentExamPrep?.planVersion || 0;
+  const mergedResult = mergePlans(currentExamPrep?.studyPlan || [], rawSteps, recommendations, currentVersion);
+  
+  return {
+    ...mergedResult,
+    dailyBudgetMinutes
+  };
 };
 
-export const generatePlanGemini = async (studentStats, geminiKey) => {
+export const generatePlanGemini = async (studentStats, geminiKey, currentExamPrep = null) => {
   if (!geminiKey) {
-    return generatePlanLocal(studentStats);
+    return generatePlanLocal(studentStats, currentExamPrep);
   }
   
   const subjects = studentStats?.subjectsMastery?.map(s => s.name) || ["История Казахстана"];
   const topicMastery = studentStats?.topicMastery || {};
   const daysToUnt = studentStats?.daysToUnt || 180;
   const grade = studentStats?.grade || "11 класс";
-  const dailyBudgetMinutes = studentStats?.dailyBudgetMinutes || 120;
   
-  // Construct topic mastery description for Gemini
+  let dailyBudgetMinutes = 120;
+  if (studentStats?.schoolScheduleType === "first_shift") {
+    dailyBudgetMinutes = 180;
+  } else if (studentStats?.schoolScheduleType === "second_shift") {
+    dailyBudgetMinutes = 90;
+  }
+  
   const masteryDescription = {};
   subjects.forEach(sub => {
     masteryDescription[sub] = {};
@@ -165,16 +220,16 @@ export const generatePlanGemini = async (studentStats, geminiKey) => {
 - Выбранные предметы и текущее мастерство по темам (scale 0.0 - 1.0): ${JSON.stringify(masteryDescription)}
 - Класс обучения: ${grade}
 - Оставшееся время до ЕНТ: ${daysToUnt} дней
-- Ежедневный лимит занятий: ${dailyBudgetMinutes} минут
+- Ежедневный лимит минут занятий: ${dailyBudgetMinutes} минут
 
 Инструкции по генерации:
 1. Отсортируй темы логически (сначала пробелы в важных темах с высоким весом topicWeight, затем закрепление).
 2. Для каждого шага сформируй понятное название "name" (описывающее, что изучить).
-3. Проставь дедлайны "date". Если это 11 класс, пиши в формате "Срок: ДД.ММ (через Х дн.)". Если это 9 или 10 класс, пиши в формате "Рекомендуемая неделя: Неделя Х" (не используй обратный отсчет до ЕНТ).
+3. Проставь дедлайны "date". Если это 11 класс, пиши в формате "Срок: ДД.ММ (через Х дн.)". Если это 9 или 10 класс, пиши в формате "Рекомендуемая неделя: Неделя Х".
 4. Проставь значение приоритета "priority" (число от 0.0 до 1.0) для каждого шага.
-5. Выдай 3 практические рекомендации "recommendations" по улучшению подготовки.
+5. Выдай 3 практические рекомендации "recommendations" по улучшению подготовки. Если тем много, а дней мало, первым пунктом выдай критическое предупреждение о дефиците времени.
 
-Верни ответ СТРОГО в формате JSON без markdown-разметки (без \`\`\`json):
+Верни ответ СТРОГО в формате JSON без markdown-разметки:
 {
   "studyPlan": [
     {
@@ -212,57 +267,96 @@ export const generatePlanGemini = async (studentStats, geminiKey) => {
     
     const result = JSON.parse(cleanText);
     
-    // Ensure all steps have the required fields
     const validatedSteps = (result.studyPlan || []).map((step, idx) => ({
-      id: step.id || `step-${idx + 1}`,
+      id: step.id || `step-${idx + 1}-${Date.now()}`,
       subject: step.subject || subjects[0],
       topic: step.topic || "Общая теория",
       name: step.name || "Изучить раздел",
       priority: step.priority !== undefined ? Number(step.priority) : 0.5,
       date: step.date || "В процессе",
-      status: "upcoming",
+      status: "pending",
       source: "diagnostic",
       autoCompleted: false
     }));
     
+    const currentVersion = currentExamPrep?.planVersion || 0;
+    const mergedResult = mergePlans(
+      currentExamPrep?.studyPlan || [], 
+      validatedSteps, 
+      result.recommendations || ["Занимайтесь регулярно в тренажере"],
+      currentVersion
+    );
+    
     return {
-      studyPlan: validatedSteps,
-      recommendations: result.recommendations || ["Занимайтесь регулярно в тренажере"]
+      ...mergedResult,
+      dailyBudgetMinutes
     };
   } catch (e) {
-    console.error("[planGenerator] Gemini plan generation failed, falling back to local formulas:", e);
-    return generatePlanLocal(studentStats);
+    console.error(e);
+    return generatePlanLocal(studentStats, currentExamPrep);
   }
 };
 
-export const mergePlans = (oldPlan, newPlan) => {
-  if (!oldPlan || oldPlan.length === 0) return newPlan;
+export const updateTopicMasteryAfterSession = (currentTopicMastery, sessionResult) => {
+  const { subject, topic, score, totalQuestions } = sessionResult;
   
-  // Extract completed step subjects and topics to keep them done
-  const completedStepsMap = new Map();
-  oldPlan.forEach(step => {
-    if (step.status === "completed" || step.status === "done") {
-      const key = `${step.subject}::${step.topic}`;
-      completedStepsMap.set(key, step);
-    }
-  });
+  const updatedMastery = { ...currentTopicMastery };
+  if (!updatedMastery[subject]) updatedMastery[subject] = {};
   
-  const mergedSteps = newPlan.studyPlan.map(newStep => {
-    const key = `${newStep.subject}::${newStep.topic}`;
-    if (completedStepsMap.has(key)) {
-      const oldStep = completedStepsMap.get(key);
-      return {
-        ...newStep,
-        status: oldStep.status,
-        autoCompleted: oldStep.autoCompleted || false,
-        source: oldStep.source || "diagnostic"
-      };
-    }
-    return newStep;
-  });
+  const oldState = updatedMastery[subject][topic] || { 
+    level: 0.0, 
+    attempts: 0, 
+    lastTested: null,
+    questionsSolved: 0 
+  };
+  
+  const newAttempts = oldState.attempts + 1;
+  const newQuestionsSolved = (oldState.questionsSolved || 0) + (totalQuestions || 0);
+  
+  let newLevel = oldState.attempts === 0 
+    ? score 
+    : (oldState.level * 0.7) + (score * 0.3);
+    
+  newLevel = Math.max(0.0, Math.min(1.0, Number(newLevel.toFixed(3))));
+  
+  updatedMastery[subject][topic] = {
+    level: newLevel,
+    attempts: newAttempts,
+    questionsSolved: newQuestionsSolved,
+    lastTested: new Date().toISOString()
+  };
   
   return {
-    studyPlan: mergedSteps,
-    recommendations: newPlan.recommendations
+    updatedMastery,
+    newLevel,
+    newAttempts,
+    newQuestionsSolved
   };
+};
+
+export const syncPlanStatusesWithMastery = (studyPlan, updatedTopicMastery) => {
+  return studyPlan.map(step => {
+    const state = updatedTopicMastery[step.subject]?.[step.topic];
+    if (!state) return step;
+    
+    if (state.level >= 0.75 && state.attempts >= 5 && (state.questionsSolved || 0) >= 20 && step.status !== "done") {
+      return {
+        ...step,
+        status: "done",
+        autoCompleted: true,
+        source: "trainer_feedback"
+      };
+    }
+    
+    if (state.level < 0.40 && state.attempts >= 3 && step.status === "done") {
+      return {
+        ...step,
+        status: "needs_review",
+        autoCompleted: false,
+        source: "trainer_feedback"
+      };
+    }
+    
+    return step;
+  });
 };

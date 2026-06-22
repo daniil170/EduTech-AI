@@ -2,6 +2,13 @@ import { useState, useEffect } from "react";
 import { auth, db } from "../../../app/providers/Firebase/firebase";
 import { GEMINI_API_KEY } from "../../../shared/config/gemini";
 import { signOut } from "firebase/auth";
+import { 
+  generatePlanGemini, 
+  generatePlanLocal, 
+  calculateWeightedProgress,
+  updateTopicMasteryAfterSession,
+  syncPlanStatusesWithMastery
+} from "../../../shared/data/planGenerator";
 import {
   doc,
   onSnapshot,
@@ -599,9 +606,35 @@ export const Workspace = () => {
       const todayStr = new Date().toLocaleDateString("en-CA");
       const currentTasksSolved = studentStats.lastActiveDate === todayStr ? (studentStats.dailyTasksSolved || 0) : 0;
 
+      // =========================================================
+      // СПРИНТ 3: РАСЧЕТ ЖИВОГО ПОТЕМНОГО МАСТЕРСТВА ИЗ ТРЕНАЖЕРА
+      // =========================================================
+      const currentTopicMastery = studentStats?.topicMastery || {};
+      const sessionResult = {
+        subject: activeTasksSubject,
+        topic: activeTasksTopic,
+        score: isCorrect ? 1.0 : 0.0, // Одиночная задача дает 100% или 0% точности
+        totalQuestions: 1
+      };
+
+      // Высчитываем новое скользящее среднее для конкретной темы кодификатора
+      const { updatedMastery } = updateTopicMasteryAfterSession(currentTopicMastery, sessionResult);
+      
+      // Синхронизируем статусы шагов текущего плана подготовки
+      const currentStudyPlan = studentStats?.examPrep?.studyPlan || [];
+      const updatedStudyPlan = syncPlanStatusesWithMastery(currentStudyPlan, updatedMastery);
+      
+      // Пересчитываем взвешенный прогресс всего плана на основе весов тем ЕНТ
+      const nextPlanPercent = calculateWeightedProgress(updatedStudyPlan);
+
       const updateData = {
         dailyTasksSolved: currentTasksSolved + 1,
         lastActiveDate: todayStr,
+        "topicMastery": updatedMastery,
+        "studentStats.topicMastery": updatedMastery,
+        "examPrep.studyPlan": updatedStudyPlan,
+        "examPrep.completedPercent": nextPlanPercent,
+        "examPrep.updatedAt": new Date().toISOString()
       };
 
       if (isCorrect) {
@@ -680,6 +713,7 @@ export const Workspace = () => {
 
       try {
         await updateDoc(userDocRef, updateData);
+        console.log("[Trainer Engine] Результат одиночной задачи успешно зафиксирован в теме кодификатора.");
       } catch (err) {
         console.error("Ошибка обновления данных в Firestore:", err);
       }
@@ -727,7 +761,7 @@ export const Workspace = () => {
     };
   }, [user]);
 
-  const handleFinishDiagnostic = async (scorePercent, combo) => {
+const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
     if (!user) return;
     setOnboardingStep("generating_plan");
     setOnboardingSaving(true);
@@ -740,21 +774,12 @@ export const Workspace = () => {
       "Биология – География": ["Биология", "География"],
       "Всемирная история – География": ["Всемирная история", "География"],
       "Всемирная история – Основы права": ["Всемирная история", "Основы права"],
-      "Казахский язык – Казахская литература": [
-        "Казахский язык",
-        "Казахская литература",
-      ],
-      "Русский язык – Русская литература": [
-        "Русский язык",
-        "Русская литература",
-      ],
+      "Казахский язык – Казахская литература": ["Казахский язык", "Казахская литература"],
+      "Русский язык – Русская литература": ["Русский язык", "Русская литература"],
       "Творческий экзамен": ["Творческий экзамен 1", "Творческий экзамен 2"],
     };
 
-    const profileSubs = subjectsMap[combo] || [
-      "Профильный предмет 1",
-      "Профильный предмет 2",
-    ];
+    const profileSubs = subjectsMap[combo] || ["Математика", "Физика"];
     const allCurrentSubjects = [
       "История Казахстана",
       "Грамотность чтения",
@@ -762,155 +787,158 @@ export const Workspace = () => {
       ...profileSubs,
     ];
 
-    const startProgress = scorePercent > 80 ? 35 : scorePercent > 45 ? 20 : 5;
-
-    const subjectsMastery = [
-      {
-        id: "history",
-        name: "История Казахстана",
-        level: startProgress > 20 ? "Средний" : "Базовый",
-        progress: startProgress,
-        color: "bg-emerald-500",
-        icon: "🕌",
-      },
-      {
-        id: "read_lit",
-        name: "Грамотность чтения",
-        level: startProgress > 20 ? "Средний" : "Базовый",
-        progress: startProgress,
-        color: "bg-teal-500",
-        icon: "📖",
-      },
-      {
-        id: "math_lit",
-        name: "Математическая грамотность",
-        level: startProgress > 20 ? "Средний" : "Базовый",
-        progress: startProgress,
-        color: "bg-indigo-500",
-        icon: "📐",
-      },
-      {
-        id: "profile_1",
-        name: profileSubs[0],
-        level: startProgress > 20 ? "Средний" : "Базовый",
-        progress: startProgress,
-        color: "bg-blue-600",
-        icon: "🧬",
-      },
-      {
-        id: "profile_2",
-        name: profileSubs[1],
-        level: startProgress > 20 ? "Средний" : "Базовый",
-        progress: startProgress,
-        color: "bg-purple-600",
-        icon: "⚡",
-      },
-    ];
-
-    const initialGoals = [
-      {
-        id: 1,
-        text: `Решить 30 задач по теме ${profileSubs[0]}`,
-        current: 0,
-        max: 30,
-        color: "bg-blue-600",
-      },
-      {
-        id: 2,
-        text: `Отработать тему по теме ${profileSubs[1]}`,
-        current: 0,
-        max: 30,
-        color: "bg-purple-600",
-      },
-      {
-        id: 3,
-        text: "Решить тест по Истории Казахстана",
-        current: 0,
-        max: 1,
-        color: "bg-emerald-500",
-      },
-    ];
-
-    const studyPlan = [
-      {
-        id: "sp-1",
-        name: `Введение в предмет: ${profileSubs[0]}`,
-        status: "upcoming",
-        date: "Срок: на этой неделе",
-      },
-      {
-        id: "sp-2",
-        name: `Базовые законы: ${profileSubs[1]}`,
-        status: "upcoming",
-        date: "Срок: следующая неделя",
-      },
-      {
-        id: "sp-3",
-        name: "Казахстан в период Средневековья",
-        status: "upcoming",
-        date: "Срок: через 2 недели",
-      },
-    ];
-
     try {
+      const userRef = doc(db, "users", user.uid);
+      const now = Date.now();
+
+      // ==========================================
+      // ЭТАП 1: ФОРМИРОВАНИЕ ИНДИВИДУАЛЬНОЙ TOPIC MASTERY MAP
+      // ==========================================
+      const targetTopicMastery = {};
+
+      allCurrentSubjects.forEach((subjectName) => {
+        targetTopicMastery[subjectName] = {};
+        const incomingSubjectData = topicBreakdown?.[subjectName] || {};
+        const staticTopics = getTopicsForSubject(subjectName);
+        
+        staticTopics.forEach((topicName) => {
+          const initialLevel = incomingSubjectData[topicName] !== undefined 
+            ? Number(incomingSubjectData[topicName]) 
+            : 0.0;
+
+          targetTopicMastery[subjectName][topicName] = {
+            level: initialLevel,
+            attempts: 1,
+            lastTested: new Date(now).toISOString()
+          };
+        });
+      });
+
+      // ==========================================
+      // ЭТАП 2: РАСЧЕТ SUBJECTS MASTERY ДЛЯ ИНТЕРФЕЙСА ДАШБОРДА
+      // ==========================================
+      const updatedSubjectsMastery = allCurrentSubjects.map((subjectName, idx) => {
+        const topics = targetTopicMastery[subjectName];
+        const totalTopics = Object.keys(topics).length;
+        const sumLevels = Object.values(topics).reduce((sum, t) => sum + t.level, 0);
+        const avgPercent = totalTopics > 0 ? Math.round((sumLevels / totalTopics) * 100) : 0;
+
+        let color = "bg-indigo-500";
+        let icon = "📚";
+        if (subjectName.includes("История")) { color = "bg-emerald-500"; icon = "🕌"; }
+        else if (subjectName.includes("чтения")) { color = "bg-teal-500"; icon = "📖"; }
+        else if (subjectName.includes("грамотность")) { color = "bg-indigo-500"; icon = "📐"; }
+        else if (idx === 3) { color = "bg-blue-600"; icon = "🧬"; }
+        else if (idx === 4) { color = "bg-purple-600"; icon = "⚡"; }
+
+        return {
+          id: `sub-${idx + 1}-${now}`,
+          name: subjectName,
+          level: avgPercent >= 75 ? "Продвинутый" : avgPercent >= 40 ? "Средний" : "Базовый",
+          progress: avgPercent,
+          color,
+          icon
+        };
+      });
+
+      // ==========================================
+      // ЭТАП 3: АВТОМАТИЧЕСКАЯ ГЕНЕРАЦИЯ И ПЛАН СРАЗУ ПОСЛЕ ТЕСТА
+      // ==========================================
+      const studentStatsMock = {
+        grade: studentStats?.grade || "11 класс",
+        daysToUnt: studentStats?.daysToUnt || 180,
+        dailyBudgetMinutes: studentStats?.dailyBudgetMinutes || 120,
+        subjectsMastery: updatedSubjectsMastery,
+        topicMastery: targetTopicMastery
+      };
+
+      let generatedPlanResult;
+      if (geminiKey) {
+        generatedPlanResult = await generatePlanGemini(studentStatsMock, geminiKey, null);
+      } else {
+        generatedPlanResult = generatePlanLocal(studentStatsMock, null);
+      }
+
+      const nextPercent = calculateWeightedProgress(generatedPlanResult.studyPlan);
+
+      // ==========================================
+      // ЭТАП 4: СОХРАНЕНИЕ ДАННЫХ И ИНИЦИАЛИЗАЦИЯ КАЛЕНДАРЯ В FIREBASE
+      // ==========================================
       const batch = writeBatch(db);
       const today = new Date();
+
+      const flatWeakestTopics = [];
+      Object.keys(targetTopicMastery).forEach(sub => {
+        Object.keys(targetTopicMastery[sub]).forEach(top => {
+          flatWeakestTopics.push({ sub, top, level: targetTopicMastery[sub][top].level });
+        });
+      });
+      flatWeakestTopics.sort((a, b) => a.level - b.level);
 
       for (let i = 0; i < 4; i++) {
         const targetDay = new Date(today);
         targetDay.setDate(today.getDate() + (i + 1));
         const dateStr = targetDay.toISOString().split("T")[0];
 
-        const targetSub = allCurrentSubjects[i % allCurrentSubjects.length];
-        const topics = getTopicsForSubject(targetSub);
-        const randomTopic = topics[Math.floor(Math.random() * topics.length)];
+        const recommendation = flatWeakestTopics[i % flatWeakestTopics.length];
 
         const calendarRef = doc(collection(db, "calendar"));
         batch.set(calendarRef, {
-          title: `AI Урок: ${randomTopic}`,
-          subject: targetSub,
-          topic: randomTopic,
+          title: `AI Урок: ${recommendation.top}`,
+          subject: recommendation.subject,
+          topic: recommendation.top,
           time: "16:00",
           date: dateStr,
           type: "lesson",
+          completed: false,
           studentId: user.uid,
           createdAt: new Date().toISOString(),
         });
       }
 
-      const userDocRef = doc(db, "users", user.uid);
-      batch.update(userDocRef, {
+      const initialGoals = [
+        { id: 1, text: `Решить 30 задач по теме ${profileSubs[0]}`, current: 0, max: 30, color: "bg-blue-600" },
+        { id: 2, text: `Отработать тему по теме ${profileSubs[1]}`, current: 0, max: 30, color: "bg-purple-600" },
+        { id: 3, text: "Решить тест по Истории Казахстана", current: 0, max: 1, color: "bg-emerald-500" },
+      ];
+
+      batch.update(userRef, {
         profileCombination: combo,
         hasPassedDiagnostic: true,
-        subjectsMastery: subjectsMastery,
+        subjectsMastery: updatedSubjectsMastery,
         weeklyGoals: initialGoals,
         overallProgress: Math.round(scorePercent / 3),
+        "studentStats.topicMastery": targetTopicMastery,
+        "topicMastery": targetTopicMastery,
         examPrep: {
-          completedPercent: 0,
-          studyPlan: studyPlan,
-          recommendations: [],
+          studyPlan: generatedPlanResult.studyPlan,
+          recommendations: generatedPlanResult.recommendations,
+          completedPercent: nextPercent,
+          planVersion: 1,
+          dailyBudgetMinutes: studentStatsMock.dailyBudgetMinutes,
+          updatedAt: new Date(now).toISOString()
         },
         recentActivity: [
           {
             id: crypto.randomUUID(),
             type: "Система",
-            name: `Пройдена стартовая ИИ-диагностика на ${scorePercent}% баллов. Календарь сформирован!`,
+            name: `Пройдена стартовая ИИ-диагностика (Результат: ${scorePercent}%). Потемная матрица знаний и Календарь успешно сформированы!`,
             score: "+500 опыта",
             time: "Только что",
           },
+          ...(studentStats?.recentActivity || []).slice(0, 4),
         ],
       });
 
       await batch.commit();
 
-      setTasksSubject(subjectsMastery[0].name);
-      setTasksTopic(getTopicsForSubject(subjectsMastery[0].name)[0]);
+      setTasksSubject(profileSubs[0]);
+      setTasksTopic(getTopicsForSubject(profileSubs[0])[0]);
       setLocalPassedDiagnostic(true);
+
     } catch (err) {
       console.error("Ошибка автопланирования при диагностике:", err);
-      alert(
-        "Ошибка записи в базу. Убедитесь, что Firestore активен в консоли Firebase!",
-      );
+      alert("Ошибка записи в базу данных. Убедитесь в стабильности подключения к Firebase.");
       setOnboardingStep("select_combo");
     } finally {
       setOnboardingSaving(false);
