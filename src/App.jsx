@@ -34,9 +34,11 @@ function App() {
           if (!docSnap.exists()) {
             const savedGrade = localStorage.getItem("selected_grade") || "11 класс";
             const savedDaysToUnt = localStorage.getItem("selected_days_to_unt") || "";
+            const savedStudyTimeSlot = localStorage.getItem("selected_study_time_slot") || "14:00 - 20:00";
             localStorage.removeItem("selected_role");
             localStorage.removeItem("selected_grade");
             localStorage.removeItem("selected_days_to_unt");
+            localStorage.removeItem("selected_study_time_slot");
 
             await setDoc(userDocRef, {
               email: currentUser.email,
@@ -44,9 +46,12 @@ function App() {
               tariff: isFounderEmail ? "founder" : (isWhitelisted ? "whitelisted" : "free"),
               grade: savedGrade,
               daysToUnt: savedDaysToUnt ? parseInt(savedDaysToUnt, 10) : "",
+              studyTimeSlot: savedStudyTimeSlot,
               examType: "ЕНТ",
               profileCombination: "",
               hasPassedDiagnostic: false,
+              topicMastery: {},
+              diagnostics: {},
 
               overallProgress: 0,
               targetScore: 140,

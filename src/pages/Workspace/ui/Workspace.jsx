@@ -11,14 +11,16 @@ import {
   where,
   addDoc,
   writeBatch,
-  setDoc,
-  deleteDoc,
 } from "firebase/firestore";
 import { ExamPrep } from "../../../widgets/ExamPrep";
 import { MockExam } from "../../../widgets/MockExam";
 import { AiLearningCore } from "../../../widgets/AiLearningCore";
 import { InteractiveCalendar } from "../../../widgets/InteractiveCalendar";
 import { FinalSimulation } from "../../../widgets/FinalSimulation";
+import { CeoPanel } from "../../../widgets/CeoPanel";
+import { SubscriptionModal } from "../../../features/SubscriptionModal";
+import { CongratsModal } from "../../../features/CongratsModal";
+import { CertificateModal } from "../../../features/CertificateModal";
 import {
   generateAiPromptForSimilarTask,
   entDatabase,
@@ -279,14 +281,6 @@ export const Workspace = () => {
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCertificateOpen, setIsCertificateOpen] = useState(false);
-
-  // States for Card Payments & Subscriptions
-  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
-  const [selectedPlanForPay, setSelectedPlanForPay] = useState(null);
-  const [isPaying, setIsPaying] = useState(false);
-  const [paymentStepText, setPaymentStepText] = useState("");
-  const [paymentForm, setPaymentForm] = useState({ number: "", expiry: "", cvc: "", name: "" });
-  const [paymentError, setPaymentError] = useState("");
   const [isCongratsOpen, setIsCongratsOpen] = useState(false);
 
   useEffect(() => {
@@ -300,10 +294,6 @@ export const Workspace = () => {
       }
     }
   }, [user, studentStats?.tariff]);
-
-  // States for Whitelist Management (CEO & Founder)
-  const [whitelistEmails, setWhitelistEmails] = useState([]);
-  const [newWhitelistEmail, setNewWhitelistEmail] = useState("");
 
   // Real-time synchronization of whitelist premium status for current user
   useEffect(() => {
@@ -343,132 +333,7 @@ export const Workspace = () => {
     return () => unsubWhitelist();
   }, [user, studentStats]);
 
-  // Real-time listener for the entire whitelist collection (only for Founder inside Settings modal)
-  useEffect(() => {
-    if (!user || studentStats?.role !== "founder" || !isSettingsOpen) return;
-    
-    const q = collection(db, "premium_whitelist");
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const list = [];
-        snapshot.forEach((doc) => {
-          list.push({ email: doc.id, ...doc.data() });
-        });
-        setWhitelistEmails(list);
-      },
-      (err) => {
-        console.error("Error loading whitelist collection:", err);
-      }
-    );
-    
-    return () => unsub();
-  }, [user, studentStats?.role, isSettingsOpen]);
 
-  // Handlers for payments validation & formatting
-  const handleCardNumberChange = (e) => {
-    const value = e.target.value.replace(/\D/g, "");
-    const formatted = value.match(/.{1,4}/g)?.join(" ") || "";
-    setPaymentForm(prev => ({ ...prev, number: formatted.slice(0, 19) }));
-  };
-
-  const handleExpiryChange = (e) => {
-    let value = e.target.value.replace(/\D/g, "");
-    if (value.length > 2) {
-      value = `${value.slice(0, 2)}/${value.slice(2, 4)}`;
-    }
-    setPaymentForm(prev => ({ ...prev, expiry: value.slice(0, 5) }));
-  };
-
-  const handleCvcChange = (e) => {
-    const value = e.target.value.replace(/\D/g, "");
-    setPaymentForm(prev => ({ ...prev, cvc: value.slice(0, 3) }));
-  };
-
-  const handleCardPaymentSubmit = async (e) => {
-    e.preventDefault();
-    if (!paymentForm.number || paymentForm.number.replace(/\s/g, "").length !== 16) {
-      setPaymentError("Введите корректный 16-значный номер карты");
-      return;
-    }
-    if (!paymentForm.expiry || !/^\d{2}\/\d{2}$/.test(paymentForm.expiry)) {
-      setPaymentError("Введите срок действия в формате ММ/ГГ");
-      return;
-    }
-    const [mm] = paymentForm.expiry.split("/").map(Number);
-    if (mm < 1 || mm > 12) {
-      setPaymentError("Некорректный месяц срока действия");
-      return;
-    }
-    if (!paymentForm.cvc || paymentForm.cvc.length !== 3 || isNaN(Number(paymentForm.cvc))) {
-      setPaymentError("Введите 3-значный CVC/CVV код");
-      return;
-    }
-    if (!paymentForm.name.trim()) {
-      setPaymentError("Введите имя владельца карты");
-      return;
-    }
-
-    setPaymentError("");
-    setIsPaying(true);
-    
-    try {
-      setPaymentStepText("Инициализация безопасного 3D-Secure соединения...");
-      await new Promise(r => setTimeout(r, 800));
-      setPaymentStepText("Проверка авторизации банком-эмитентом...");
-      await new Promise(r => setTimeout(r, 700));
-      setPaymentStepText("Подтверждение транзакции...");
-      await new Promise(r => setTimeout(r, 600));
-
-      if (user && selectedPlanForPay) {
-        await updateDoc(doc(db, "users", user.uid), {
-          tariff: selectedPlanForPay.id
-        });
-      }
-      
-      setIsPaying(false);
-      setIsPaymentOpen(false);
-      setSelectedPlanForPay(null);
-      setPaymentForm({ number: "", expiry: "", cvc: "", name: "" });
-      alert(`Тариф успешно изменен на "${selectedPlanForPay.name}"!`);
-    } catch (err) {
-      console.error("Payment error:", err);
-      setPaymentError("Произошла ошибка при обработке платежа. Попробуйте еще раз.");
-      setIsPaying(false);
-    }
-  };
-
-  // Handlers for Founder Whitelist Management
-  const handleAddWhitelistEmail = async (e) => {
-    e.preventDefault();
-    const emailToAdd = newWhitelistEmail.trim().toLowerCase();
-    if (!emailToAdd || !emailToAdd.includes("@")) {
-      alert("Введите корректный email адрес");
-      return;
-    }
-    try {
-      await setDoc(doc(db, "premium_whitelist", emailToAdd), {
-        email: emailToAdd,
-        addedAt: new Date().toISOString()
-      });
-      setNewWhitelistEmail("");
-      alert(`Доступ успешно выдан для: ${emailToAdd}`);
-    } catch (err) {
-      console.error("Error adding to whitelist:", err);
-      alert("Не удалось добавить в вайтлист. Проверьте права доступа.");
-    }
-  };
-
-  const handleRemoveWhitelistEmail = async (emailToRemove) => {
-    if (!confirm(`Вы действительно хотите аннулировать доступ для ${emailToRemove}?`)) return;
-    try {
-      await deleteDoc(doc(db, "premium_whitelist", emailToRemove));
-      alert(`Доступ аннулирован для: ${emailToRemove}`);
-    } catch (err) {
-      console.error("Error removing from whitelist:", err);
-      alert("Не удалось удалить из вайтлиста.");
-    }
-  };
 
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [selectedCombo, setSelectedCombo] = useState("");
@@ -486,6 +351,17 @@ export const Workspace = () => {
     "История Казахстана";
   const activeTasksTopic =
     tasksTopic || getTopicsForSubject(activeTasksSubject)?.[0] || "";
+
+  const hasProAccess =
+    studentStats?.tariff === "premium" ||
+    studentStats?.tariff === "ultimate" ||
+    studentStats?.tariff === "whitelisted" ||
+    studentStats?.role === "founder";
+
+  const hasUltraAccess =
+    studentStats?.tariff === "ultimate" ||
+    studentStats?.tariff === "whitelisted" ||
+    studentStats?.role === "founder";
   const [generatedTask, setGeneratedTask] = useState(null);
   const [tasksGenerating, setTasksGenerating] = useState(false);
   const [selectedTaskAns, setSelectedTaskAns] = useState(null);
@@ -628,6 +504,30 @@ export const Workspace = () => {
   };
 
   const handleGenerateTask = async () => {
+    // 1. Free subject restriction
+    const isFree = !studentStats?.tariff || studentStats.tariff === "free";
+    const activeFreeSubName = studentStats?.activeFreeSubject || studentStats?.subjectsMastery?.[3]?.name || "Математика";
+    if (isFree && activeTasksSubject !== activeFreeSubName) {
+      alert(`🔒 На бесплатном тарифе доступен только предмет "${activeFreeSubName}".\nВы можете переключить его в меню выбора предметов.`);
+      return;
+    }
+
+    // 2. Daily tasks limit validation
+    const todayStr = new Date().toLocaleDateString("en-CA");
+    const currentTasksSolved = studentStats?.lastActiveDate === todayStr ? (studentStats?.dailyTasksSolved || 0) : 0;
+    const getDailyLimit = (tariff, role) => {
+      if (role === "founder" || tariff === "whitelisted") return Infinity;
+      if (tariff === "ultimate") return 500;
+      if (tariff === "premium") return 300;
+      if (tariff === "basic") return 50;
+      return 15;
+    };
+    const limit = getDailyLimit(studentStats?.tariff, studentStats?.role);
+    if (currentTasksSolved >= limit) {
+      alert(`⚠️ Вы достигли дневного лимита ИИ-задач (${limit} задач).\n\nОбновление лимита произойдет завтра. Перейдите на более высокий тариф, чтобы увеличить лимит!`);
+      return;
+    }
+
     setTasksGenerating(true);
     setTaskChecked(false);
     setSelectedTaskAns(null);
@@ -696,6 +596,14 @@ export const Workspace = () => {
 
     if (studentStats && user) {
       const userDocRef = doc(db, "users", user.uid);
+      const todayStr = new Date().toLocaleDateString("en-CA");
+      const currentTasksSolved = studentStats.lastActiveDate === todayStr ? (studentStats.dailyTasksSolved || 0) : 0;
+
+      const updateData = {
+        dailyTasksSolved: currentTasksSolved + 1,
+        lastActiveDate: todayStr,
+      };
+
       if (isCorrect) {
         const nextProgress = Math.min(
           (studentStats.overallProgress || 0) + 2,
@@ -734,47 +642,46 @@ export const Workspace = () => {
           }
           return goal;
         });
-        try {
-          await updateDoc(userDocRef, {
-            overallProgress: nextProgress,
-            weeklyProductivity: updatedProductivity,
-            subjectsMastery: updatedMastery,
-            weeklyGoals: updatedGoals,
-            recentActivity: [
-              {
-                id: crypto.randomUUID(),
-                type: "Практика",
-                name: `Решена задача ИИ по теме: ${activeTasksTopic}`,
-                score: "+150 опыта",
-                time: "Только что",
-              },
-              ...(studentStats.recentActivity || []).slice(0, 4),
-            ],
-          });
-        } catch {
-          console.error("Ошибка при начислении прогресса");
-        }
+
+        Object.assign(updateData, {
+          overallProgress: nextProgress,
+          weeklyProductivity: updatedProductivity,
+          subjectsMastery: updatedMastery,
+          weeklyGoals: updatedGoals,
+          recentActivity: [
+            {
+              id: crypto.randomUUID(),
+              type: "Практика",
+              name: `Решена задача ИИ по теме: ${activeTasksTopic}`,
+              score: "+150 опыта",
+              time: "Только что",
+            },
+            ...(studentStats.recentActivity || []).slice(0, 4),
+          ],
+        });
       } else {
         const currentAttention = studentStats.attentionNeeded || [];
         if (!currentAttention.some((item) => item.topic === activeTasksTopic)) {
-          try {
-            await updateDoc(userDocRef, {
-              attentionNeeded: [
-                {
-                  id: `need-${crypto.randomUUID().slice(0, 6)}`,
-                  subject: activeTasksSubject,
-                  topic: activeTasksTopic,
-                  type: "Практика",
-                  urgency:
-                    tasksDifficulty === "Сложный" ? "Высокий" : "Средний",
-                },
-                ...currentAttention.slice(0, 3),
-              ],
-            });
-          } catch {
-            console.error("Ошибка обновления списка внимания");
-          }
+          Object.assign(updateData, {
+            attentionNeeded: [
+              {
+                id: `need-${crypto.randomUUID().slice(0, 6)}`,
+                subject: activeTasksSubject,
+                topic: activeTasksTopic,
+                type: "Практика",
+                urgency:
+                  tasksDifficulty === "Сложный" ? "Высокий" : "Средний",
+              },
+              ...currentAttention.slice(0, 3),
+            ],
+          });
         }
+      }
+
+      try {
+        await updateDoc(userDocRef, updateData);
+      } catch (err) {
+        console.error("Ошибка обновления данных в Firestore:", err);
       }
     }
   };
@@ -1179,30 +1086,114 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
 
 
 
-  const getNextStepInfo = () => {
-    if (studentStats?.attentionRequired?.length > 0) {
-      const firstItem = studentStats.attentionRequired[0];
+  // ── Smart CTA: determines next recommended action ──────────────────────────
+  const getSmartNextStep = () => {
+    if (!studentStats?.hasPassedDiagnostic) {
       return {
-        title: `Исправить тему: ${firstItem.topic}`,
-        desc: `Вы ошиблись в этой теме в проверочном тесте. Точность составила всего ${firstItem.accuracy}%. Давайте отработаем её в тренажере.`,
-        btnText: "Запустить отработку ИИ",
+        icon: "🧪",
+        label: "Начать диагностику",
+        title: "Пройди стартовую диагностику",
+        desc: "ИИ проанализирует уровень знаний и составит персональный план.",
+        action: () => setOnboardingStep("diagnostic_test"),
+        color: "from-violet-600 to-indigo-600",
+      };
+    }
+    const plan = studentStats?.examPrep?.studyPlan || [];
+    const unfinished = plan.filter((t) => t.status !== "completed");
+    if (unfinished.length > 0) {
+      const top = unfinished[0];
+      return {
+        icon: "📖",
+        label: "Продолжить обучение",
+        title: top.name,
+        desc: top.date || "Следующая тема по плану подготовки к ЕНТ.",
         action: () => {
-          setTasksSubject(firstItem.subject);
-          setTasksTopic(firstItem.topic);
+          const subj = studentStats?.subjectsMastery?.[0]?.name || "История Казахстана";
+          setTasksSubject(subj);
+          setTasksTopic(top.name);
           setActiveTab("tasks");
         },
+        color: "from-indigo-600 to-blue-600",
       };
     }
     return {
-      title: "Пройти практику ИИ",
-      desc: "Создайте individualную задачу с помощью ИИ-помощника для закрепления знаний по любой выбранной теме.",
-      btnText: "Начать практику",
-      action: () => setActiveTab("tasks"),
+      icon: "🏁",
+      label: "Финальная аттестация",
+      title: "Все темы освоены!",
+      desc: "Пройди финальную симуляцию ЕНТ и получи сертификат.",
+      action: () => setOnboardingStep("final_exam"),
+      color: "from-emerald-600 to-teal-600",
     };
   };
 
-  const nextStep = getNextStepInfo();
+  const smartStep = getSmartNextStep();
   const handleLogout = () => signOut(auth);
+
+  // ── Derived dashboard values ─────────────────────────────────────────────────
+  const is11Grade = studentStats?.grade === "11 класс";
+  const isJuniorGrade =
+    studentStats?.grade === "9 класс" || studentStats?.grade === "10 класс";
+
+  // Score forecast (140-point scale)
+  const profileSubjects = (studentStats?.subjectsMastery || []).filter(
+    (s) => s.id === "profile_1" || s.id === "profile_2"
+  );
+  const mandatorySubjects = (studentStats?.subjectsMastery || []).filter(
+    (s) => s.id !== "profile_1" && s.id !== "profile_2"
+  );
+  const forecastScore = (() => {
+    if (!studentStats?.subjectsMastery?.length) return 0;
+    const profilePts = profileSubjects.reduce(
+      (sum, s) => sum + Math.round(((s.progress || 0) / 100) * 50),
+      0
+    );
+    const mandatoryWeights = [20, 10, 10];
+    const mandatoryPts = mandatorySubjects
+      .slice(0, 3)
+      .reduce(
+        (sum, s, i) =>
+          sum + Math.round(((s.progress || 0) / 100) * (mandatoryWeights[i] || 10)),
+        0
+      );
+    return profilePts + mandatoryPts;
+  })();
+
+  // Average mastery for 9-10 graders
+  const avgMastery =
+    studentStats?.subjectsMastery?.length
+      ? Math.round(
+          studentStats.subjectsMastery.reduce((s, x) => s + (x.progress || 0), 0) /
+            studentStats.subjectsMastery.length
+        )
+      : 0;
+
+  // Last 28 days activity grid
+  const activityGrid = (() => {
+    const grid = [];
+    const today = new Date();
+    for (let i = 27; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      // use simple heuristic: mark today and last streak days as active
+      const streakDays = studentStats?.streakDays || 0;
+      const isActive = i < streakDays;
+      grid.push({ date: dateStr, active: isActive });
+    }
+    return grid;
+  })();
+
+  // Top 3 study-plan topics (not completed) for dashboard
+  const topPlanTopics = (studentStats?.examPrep?.studyPlan || [])
+    .filter((t) => t.status !== "completed")
+    .slice(0, 3);
+
+  // Alerts
+  const needsReviewTopics = (studentStats?.attentionNeeded || []).filter(
+    (t) => t.status === "needs_review"
+  );
+  const isInactive = false; // Real implementation would check dates; placeholder
+  const hasOverdueTopics = needsReviewTopics.length > 0 || (studentStats?.attentionNeeded?.length || 0) > 3;
 
   if (loading) {
     return (
@@ -1405,6 +1396,11 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
     }
 
     if (onboardingStep === "final_exam") {
+      if (!hasUltraAccess) {
+        alert("🔒 Режим симуляции ЕНТ доступен только на тарифе Ultra.\n\nПожалуйста, обновите тариф в разделе Подписка!");
+        setOnboardingStep("");
+        return null;
+      }
       return (
         <FinalSimulation
           combo={studentStats?.profileCombination || "Математика и Физика"}
@@ -1598,6 +1594,9 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
               { id: "exam_prep", icon: "🎓", label: "План Подготовки" },
               { id: "calendar", icon: "📅", label: "Расписание" },
               { id: "progress", icon: "📈", label: "Аналитика ИИ" },
+              ...(studentStats?.role === "founder" || user?.email?.toLowerCase() === "daniilivakin30@gmail.com"
+                ? [{ id: "ceo_panel", icon: "🔑", label: "Панель CEO" }]
+                : []),
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1652,64 +1651,383 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
         </header>
 
         <div className="p-8 space-y-8 max-w-6xl w-full mx-auto flex-1">
+          {activeTab === "forecast" && (() => {
+            if (!hasUltraAccess) {
+              return (
+                <div className="h-full flex items-center justify-center p-4">
+                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-xl shadow-slate-200/40 select-none">
+                    <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mx-auto border border-indigo-100 shadow-sm">
+                      🔒
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-black text-slate-900">ИИ-Прогноз балла ЕНТ</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        Функция прогнозирования финального балла ЕНТ на основе вашей успеваемости доступна только на тарифе <span className="text-indigo-600 font-bold">Ultra</span>.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          setIsSettingsOpen(true);
+                          setActiveTab("dashboard");
+                        }}
+                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-200 cursor-pointer"
+                      >
+                        ⚡ Перейти на тариф Ultra
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-6 max-w-3xl mx-auto">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setActiveTab("dashboard")}
+                    className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition text-slate-500 text-sm"
+                  >
+                    ← Назад
+                  </button>
+                  <h1 className="text-xl font-black text-slate-900">📊 Подробный ИИ-прогноз балла ЕНТ</h1>
+                </div>
+                <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-6">
+                  <div className="text-center space-y-2">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Прогнозируемый результат</p>
+                    <p className="text-6xl font-black text-indigo-600">{forecastScore}</p>
+                    <p className="text-sm text-slate-400">из 140 баллов</p>
+                    <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-700"
+                        style={{ width: `${(forecastScore / 140) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {profileSubjects.map((s) => {
+                      const pts = Math.round(((s.progress || 0) / 100) * 50);
+                      return (
+                        <div key={s.id} className="border border-indigo-100 bg-indigo-50/30 p-4 rounded-2xl space-y-2">
+                          <div className="flex justify-between items-center">
+                            <p className="text-xs font-black text-indigo-800">{s.name}</p>
+                            <span className="text-xs font-mono font-bold text-indigo-600">{pts}/50 пт</span>
+                          </div>
+                          <div className="w-full bg-indigo-100 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${s.progress || 0}%` }} />
+                          </div>
+                          <p className="text-[10px] text-indigo-500">Освоено: {s.progress || 0}%</p>
+                        </div>
+                      );
+                    })}
+                    {mandatorySubjects.slice(0, 3).map((s, i) => {
+                      const weights = [20, 10, 10];
+                      const pts = Math.round(((s.progress || 0) / 100) * (weights[i] || 10));
+                      return (
+                        <div key={s.id} className="border border-slate-100 bg-slate-50/50 p-4 rounded-2xl space-y-2">
+                          <div className="flex justify-between items-center">
+                            <p className="text-xs font-black text-slate-700">{s.name}</p>
+                            <span className="text-xs font-mono font-bold text-slate-500">{pts}/{weights[i] || 10} пт</span>
+                          </div>
+                          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-slate-500 h-full rounded-full" style={{ width: `${s.progress || 0}%` }} />
+                          </div>
+                          <p className="text-[10px] text-slate-400">Освоено: {s.progress || 0}%</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="border border-amber-100 bg-amber-50/50 p-4 rounded-2xl">
+                    <p className="text-xs font-black text-amber-800 mb-1">🔢 Формула расчёта ЕНТ</p>
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      Профильный предмет 1 (макс. 50 пт) + Профильный предмет 2 (макс. 50 пт) +
+                      История Казахстана (макс. 20 пт) + Грамотность чтения (макс. 10 пт) +
+                      Математическая грамотность (макс. 10 пт) = 140 баллов
+                    </p>
+                  </div>
+                  <div className="border border-rose-100 bg-rose-50/30 p-4 rounded-2xl">
+                    <p className="text-xs font-black text-rose-700 mb-1">📉 Упущенные баллы</p>
+                    <p className="text-[11px] text-rose-600 leading-relaxed">
+                      При текущем прогрессе вы теряете примерно{" "}
+                      <span className="font-black">{140 - forecastScore} баллов</span> из 140.
+                      Продолжайте отрабатывать темы, чтобы повысить прогноз.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {activeTab === "simulation_results" && (() => {
+            if (!hasUltraAccess) {
+              return (
+                <div className="h-full flex items-center justify-center p-4">
+                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-xl shadow-slate-200/40 select-none">
+                    <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mx-auto border border-indigo-100 shadow-sm">
+                      🔒
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-black text-slate-900">Анализейбл результатов симуляции</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        Подробный разбор финальной аттестации и расчет вероятности сдачи доступны только на тарифе <span className="text-indigo-600 font-bold">Ultra</span>.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          setIsSettingsOpen(true);
+                          setActiveTab("dashboard");
+                        }}
+                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-200 cursor-pointer"
+                      >
+                        ⚡ Перейти на тариф Ultra
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-6 max-w-3xl mx-auto">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setActiveTab("dashboard")}
+                    className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition text-slate-500 text-sm"
+                  >
+                    ← Назад
+                  </button>
+                  <h1 className="text-xl font-black text-slate-900">🎓 Подробный разбор симуляции ЕНТ</h1>
+                </div>
+                {studentStats?.finalExamScore !== undefined ? (
+                  <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-5">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Итоговый результат</p>
+                        <p className="text-4xl font-black text-emerald-600">{studentStats.finalExamScore} / 140</p>
+                      </div>
+                      <button
+                        onClick={() => setIsCertificateOpen(true)}
+                        className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-md animate-pulse"
+                      >
+                        🏆 Получить сертификат
+                      </button>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full"
+                        style={{ width: `${(studentStats.finalExamScore / 140) * 100}%` }}
+                      />
+                    </div>
+                    {studentStats.finalExamAnalysis && (
+                      <div className="border border-slate-100 bg-slate-50/50 p-5 rounded-2xl">
+                        <p className="text-xs font-black text-slate-600 mb-2">📋 Анализ от ИИ-наставника</p>
+                        <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                          {studentStats.finalExamAnalysis}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200/60 rounded-3xl p-12 shadow-sm text-center space-y-4">
+                    <p className="text-4xl">📝</p>
+                    <p className="text-sm font-bold text-slate-700">Вы ещё не проходили финальную симуляцию</p>
+                    <button
+                      onClick={() => setOnboardingStep("final_exam")}
+                      className="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-xs font-black hover:bg-indigo-700 transition"
+                    >
+                      🚀 Начать симуляцию ЕНТ
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {activeTab === "dashboard" && (
             <>
+              {/* ── Header: Grade Badge + Profile Direction ── */}
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
                   <h1 className="text-2xl font-black text-slate-900">
                     Твоя траектория подготовки к ЕНТ
                   </h1>
                   <p className="text-xs text-slate-500 mt-1">
-                    Здесь собираются личные показатели ИИ-тренировок.
+                    Личные показатели ИИ-тренировок и следующее действие.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Profile combination badge */}
                   <div className="bg-white border border-indigo-500/15 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
                     <div className="text-lg">🎓</div>
                     <div>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">
-                        Направление ЕНТ
-                      </p>
-                      <p className="text-xs font-black text-slate-800 mt-0.5">
-                        {studentStats?.profileCombination}
-                      </p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Направление ЕНТ</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.profileCombination || "—"}</p>
                     </div>
                   </div>
-                  <div className="bg-white border border-emerald-500/15 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
-                    <div className="text-lg">🔥</div>
-                    <div>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">
-                        Ударный режим
-                      </p>
-                      <p className="text-xs font-black text-slate-800 mt-0.5">
-                        {studentStats?.streakDays || 0} дней
-                      </p>
+
+                  {/* Grade-specific badge */}
+                  {is11Grade ? (
+                    <div className="bg-white border border-rose-500/20 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
+                      <div className="text-lg">🗓️</div>
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">До ЕНТ</p>
+                        <p className="text-xs font-black text-rose-600 mt-0.5">
+                          {studentStats?.daysToUnt ? `${studentStats.daysToUnt} дн.` : "Скоро!"}
+                        </p>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="bg-white border border-teal-500/20 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm">
+                      <div className="text-lg">📈</div>
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Программа</p>
+                        <p className="text-xs font-black text-teal-600 mt-0.5">Накопительная</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Streak card with 28-day activity grid */}
+                  <div className="bg-white border border-emerald-500/15 rounded-2xl p-3 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="text-lg">🔥</div>
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Ударный режим</p>
+                        <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.streakDays || 0} дней</p>
+                      </div>
+                    </div>
+                    {/* 4×7 activity mini-grid */}
+                    <div className="grid grid-cols-7 gap-0.5">
+                      {activityGrid.map((day, i) => (
+                        <div
+                          key={i}
+                          title={day.date}
+                          className={`w-3 h-3 rounded-sm transition-colors ${
+                            day.active
+                              ? "bg-emerald-500"
+                              : "bg-slate-100"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-[8px] text-slate-400 mt-1 text-right">последние 28 дней</p>
                   </div>
                 </div>
               </div>
+
+              {/* ── Alerts ── */}
+              {(hasOverdueTopics || isInactive) && (
+                <div className="space-y-2">
+                  {hasOverdueTopics && (
+                    <div className="flex items-center gap-3 bg-amber-50 border border-amber-200/80 p-3.5 rounded-2xl">
+                      <span className="text-lg shrink-0">⚠️</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black text-amber-800">Есть темы, требующие повторения</p>
+                        <p className="text-[10px] text-amber-600">
+                          {(studentStats?.attentionNeeded?.length || 0)} тем помечены как «нужно повторить».
+                          Отработайте их в ИИ-тренажере.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab("tasks")}
+                        className="bg-amber-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shrink-0 hover:bg-amber-600 transition"
+                      >
+                        Отработать
+                      </button>
+                    </div>
+                  )}
+                  {isInactive && (
+                    <div className="flex items-center gap-3 bg-rose-50 border border-rose-200/80 p-3.5 rounded-2xl">
+                      <span className="text-lg shrink-0">💤</span>
+                      <p className="text-xs font-black text-rose-700 flex-1">Вы не решали задачи более 3 дней. Вернитесь к тренировкам!</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Smart CTA Banner ── */}
+              <div
+                className={`relative overflow-hidden bg-gradient-to-br ${smartStep.color} rounded-3xl p-6 text-white shadow-xl`}
+              >
+                <div className="absolute -top-8 -right-8 w-40 h-40 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+                <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full blur-xl pointer-events-none" />
+                <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <span className="text-[9px] bg-white/15 border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                      {smartStep.label}
+                    </span>
+                    <h3 className="text-lg font-black mt-2 leading-tight">
+                      {smartStep.icon} {smartStep.title}
+                    </h3>
+                    <p className="text-xs text-white/70">{smartStep.desc}</p>
+                  </div>
+                  <button
+                    onClick={smartStep.action}
+                    className="bg-white text-indigo-700 px-6 py-3 rounded-2xl text-xs font-black shadow-lg hover:bg-slate-50 transition shrink-0 hover:scale-[1.02] active:scale-95"
+                  >
+                    Продолжить →
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Main Grid Row 1: Readiness + Weekly Goals ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm flex flex-col justify-between min-h-[200px]">
-                  <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider">
-                    Готовность к экзамену
-                  </h3>
-                  <div className="text-center my-2">
+                {/* Readiness card */}
+                <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm flex flex-col gap-4">
+                  <div className="flex justify-between items-start">
+                    <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider">
+                      {isJuniorGrade ? "Прогресс программы" : "Готовность к экзамену"}
+                    </h3>
+                    {isJuniorGrade ? (
+                      <span className="text-[9px] bg-teal-50 text-teal-600 border border-teal-200/60 px-2 py-0.5 rounded-full font-bold">9–10 кл.</span>
+                    ) : null}
+                  </div>
+                  <div className="text-center">
                     <p className="text-5xl font-black text-indigo-600">
-                      {studentStats?.overallProgress || 0}%
+                      {isJuniorGrade ? avgMastery : (studentStats?.overallProgress || 0)}%
                     </p>
                     <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">
-                      Цель: {studentStats?.targetScore || 140} баллов
+                      {isJuniorGrade ? "Средний уровень mastery" : `Цель: ${studentStats?.targetScore || 140} баллов`}
                     </p>
                   </div>
                   <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                     <div
-                      className="bg-indigo-600 h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${studentStats?.overallProgress || 0}%`,
-                      }}
-                    ></div>
+                      className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-700"
+                      style={{ width: `${isJuniorGrade ? avgMastery : (studentStats?.overallProgress || 0)}%` }}
+                    />
                   </div>
+                  {/* Per-subject readiness breakdown */}
+                  {!isJuniorGrade && profileSubjects.length > 0 && (
+                    <div className="space-y-2 pt-1 border-t border-slate-100">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Профильные предметы</p>
+                      {profileSubjects.map((s) => (
+                        <div key={s.id} className="space-y-1">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="font-semibold text-slate-700 truncate max-w-[140px]">{s.name}</span>
+                            <span className="font-black text-indigo-600">{s.progress || 0}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${s.color || "bg-indigo-500"}`} style={{ width: `${s.progress || 0}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* For 9-10: mastery growth stats */}
+                  {isJuniorGrade && (
+                    <div className="space-y-2 pt-1 border-t border-slate-100">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Рост по предметам</p>
+                      {(studentStats?.subjectsMastery || []).slice(0, 3).map((s) => (
+                        <div key={s.id} className="flex items-center gap-2">
+                          <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden flex-1">
+                            <div className={`h-full rounded-full ${s.color || "bg-teal-500"}`} style={{ width: `${s.progress || 0}%` }} />
+                          </div>
+                          <span className="text-[9px] font-black text-slate-500 w-8 text-right">{s.progress || 0}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* Weekly goals */}
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm md:col-span-2">
                   <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight mb-4">
                     Ежедневные задачи плана
@@ -1735,20 +2053,15 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                                 {goal.text}
                               </span>
                             </div>
-                            
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                                {goal.current}/{goal.max}
-                              </span>
-                            </div>
+                            <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md shrink-0">
+                              {goal.current}/{goal.max}
+                            </span>
                           </div>
                           <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
                             <div
                               className={`h-full rounded-full transition-all duration-300 ${isCompleted ? "bg-emerald-500" : goal.color || "bg-indigo-600"}`}
-                              style={{
-                                width: `${Math.min((goal.current / goal.max) * 100, 100)}%`,
-                              }}
-                            ></div>
+                              style={{ width: `${Math.min((goal.current / goal.max) * 100, 100)}%` }}
+                            />
                           </div>
                         </div>
                       );
@@ -1756,38 +2069,69 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                   </div>
                 </div>
               </div>
+
+              {/* ── Main Grid Row 2: Topics + AI Forecast ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Study plan top topics */}
                 <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm md:col-span-2 space-y-4">
-                  <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
-                    🎯 Темы для закрепления
-                  </h3>
-                  {studentStats?.attentionNeeded?.length === 0 ? (
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
+                      🎯 Темы для закрепления
+                    </h3>
+                    <button
+                      onClick={() => setActiveTab("exam_prep")}
+                      className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 transition"
+                    >
+                      Все темы → План Подготовки
+                    </button>
+                  </div>
+                  {topPlanTopics.length === 0 ? (
                     <p className="text-xs text-slate-400 py-4">
-                      Отличная работа! Слабых мест в тренировках пока не
-                      обнаружено.
+                      ✅ Все темы из плана пройдены. Отличная работа!
                     </p>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {studentStats?.attentionNeeded?.map((item, idx) => (
+                    <div className="space-y-3">
+                      {topPlanTopics.map((topic, idx) => (
                         <div
-                          key={idx}
-                          className="border border-slate-100 bg-slate-50/50 p-4 rounded-2xl flex flex-col justify-between gap-4"
+                          key={topic.id || idx}
+                          className="flex items-center justify-between gap-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-indigo-200 hover:bg-indigo-50/30 transition-all group"
                         >
-                          <div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase">
-                              {item.subject}
-                            </p>
-                            <h4 className="font-bold text-slate-800 text-sm mt-1">
-                              {item.topic}
-                            </h4>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-black shrink-0">
+                              {idx + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{topic.name}</p>
+                              <p className="text-[10px] text-slate-400">{topic.date}</p>
+                            </div>
                           </div>
                           <button
                             onClick={() => {
-                              setTasksSubject(item.subject);
-                              setTasksTopic(item.topic);
+                              const subj = studentStats?.subjectsMastery?.[0]?.name || "История Казахстана";
+                              setTasksSubject(subj);
+                              setTasksTopic(topic.name);
                               setActiveTab("tasks");
                             }}
-                            className="w-full bg-white border border-slate-200 text-slate-700 py-2 rounded-xl text-xs font-bold shadow-sm hover:bg-slate-50"
+                            className="bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-xl text-[10px] font-black hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shrink-0 group-hover:border-indigo-300"
+                          >
+                            Отработать
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Old attentionNeeded fallback if no study plan */}
+                  {topPlanTopics.length === 0 && (studentStats?.attentionNeeded?.length || 0) > 0 && (
+                    <div className="space-y-3">
+                      {studentStats.attentionNeeded.slice(0, 3).map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">{item.subject}</p>
+                            <p className="text-xs font-bold text-slate-800">{item.topic}</p>
+                          </div>
+                          <button
+                            onClick={() => { setTasksSubject(item.subject); setTasksTopic(item.topic); setActiveTab("tasks"); }}
+                            className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black hover:bg-indigo-700 transition shrink-0"
                           >
                             Запустить
                           </button>
@@ -1796,91 +2140,120 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     </div>
                   )}
                 </div>
-                <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-6 rounded-3xl text-white flex flex-col justify-between shadow-xl">
-                  <span className="text-[9px] bg-white border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase w-fit">
-                    Рекомендация ИИ
-                  </span>
-                  <h3 className="text-xl font-black mt-4 leading-tight">
-                    {nextStep.title}
-                  </h3>
-                  <p className="text-xs text-indigo-100/80 mt-2">
-                    {nextStep.desc}
-                  </p>
-                  <button
-                    onClick={nextStep.action}
-                    className="w-full bg-white text-indigo-600 py-3 rounded-xl text-xs font-black shadow-md mt-6 hover:bg-slate-50 transition"
-                  >
-                    {nextStep.btnText}
-                  </button>
-                </div>
-              </div>
 
-              {/* Final Exam & Certificate Block */}
-              <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm space-y-5 relative overflow-hidden">
-                {/* Background decoration */}
-                <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/40 to-transparent pointer-events-none rounded-r-3xl"></div>
-                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 relative z-10">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">🎓</span>
-                      <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
-                        Финальная аттестация и Сертификат
-                      </h3>
-                      {studentStats?.finalExamScore !== undefined && (
-                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">
-                          Сдано
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
-                      {studentStats?.finalExamScore !== undefined
-                        ? "Поздравляем! Вы прошли итоговую проверку знаний. Ниже представлен подробный анализ от вашего ИИ-наставника."
-                        : "Пройдите итоговую комплексную симуляцию ЕНТ по обязательным и вашим профильным предметам. Результаты будут проанализированы ИИ для оценки готовности к реальному экзамену, после чего вы получите цифровой сертификат курса."}
-                    </p>
-                  </div>
-                  <div className="shrink-0">
-                    {studentStats?.finalExamScore !== undefined ? (
-                      <div className="flex items-center gap-3">
+                {/* AI Score Forecast (simplified) – 11th grade only, else mastery card */}
+                {is11Grade ? (
+                  <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 rounded-3xl text-white flex flex-col justify-between shadow-xl relative overflow-hidden">
+                    {!hasUltraAccess && (
+                      <div className="absolute inset-0 bg-slate-950/65 backdrop-blur-[3px] flex flex-col items-center justify-center text-center p-4 z-10 select-none">
+                        <span className="text-xl mb-1">🔒</span>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-indigo-300">Прогноз балла ЕНТ</p>
+                        <p className="text-[9px] text-slate-300 mt-1 leading-normal max-w-[165px]">Доступно эксклюзивно на тарифе Ultra</p>
                         <button
-                          onClick={() => setIsCertificateOpen(true)}
-                          className="bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white px-5 py-3 rounded-2xl text-xs font-black shadow-md transition-all flex items-center gap-1.5 animate-pulse"
+                          onClick={() => setIsSettingsOpen(true)}
+                          className="mt-2.5 px-3 py-1 bg-white text-indigo-700 text-[10px] font-black rounded-lg shadow hover:bg-slate-50 transition active:scale-95 cursor-pointer"
                         >
-                          🏆 Открыть Сертификат
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm("Вы уверены, что хотите пересдать финальный экзамен? Предыдущий результат будет удален.")) {
-                              setOnboardingStep("final_exam");
-                            }
-                          }}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-2xl text-xs font-bold transition-all"
-                        >
-                          Пересдать
+                          Открыть Ultra
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setOnboardingStep("final_exam")}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition-all"
-                      >
-                        🚀 Начать симуляцию ЕНТ
-                      </button>
                     )}
-                  </div>
-                </div>
-
-                {studentStats?.finalExamScore !== undefined && (
-                  <div className="border border-slate-100 bg-slate-50/50 p-5 rounded-2xl space-y-3 relative z-10">
-                    <div className="flex justify-between items-center text-xs font-black uppercase text-slate-400">
-                      <span>Итоги тестирования</span>
-                      <span className="font-mono text-indigo-600">Результат: {studentStats.finalExamScore} / 140 баллов</span>
+                    <div>
+                      <span className="text-[9px] bg-white/15 border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                        ИИ-Прогноз балла
+                      </span>
+                      <p className="text-5xl font-black mt-4 leading-none">{forecastScore}</p>
+                      <p className="text-xs text-indigo-200 mt-1">из 140 возможных</p>
+                      <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden mt-3">
+                        <div
+                          className="bg-white h-full rounded-full transition-all duration-700"
+                          style={{ width: `${(forecastScore / 140) * 100}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-700 leading-relaxed font-medium whitespace-pre-line bg-white p-4 rounded-xl border border-slate-100/60 shadow-sm">
-                      {studentStats.finalExamAnalysis}
+                    <button
+                      onClick={() => setActiveTab("forecast")}
+                      className="w-full bg-white text-indigo-700 py-2.5 rounded-xl text-xs font-black shadow-md mt-4 hover:bg-slate-50 transition hover:scale-[1.02]"
+                    >
+                      Подробнее →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-gradient-to-br from-teal-500 to-cyan-600 p-6 rounded-3xl text-white flex flex-col justify-between shadow-xl">
+                    <div>
+                      <span className="text-[9px] bg-white/15 border border-white/10 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                        Рост Mastery
+                      </span>
+                      <p className="text-5xl font-black mt-4 leading-none">{avgMastery}%</p>
+                      <p className="text-xs text-teal-100 mt-1">Средний уровень по кодификатору</p>
+                      <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden mt-3">
+                        <div
+                          className="bg-white h-full rounded-full transition-all duration-700"
+                          style={{ width: `${avgMastery}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-teal-100/80 mt-3 leading-relaxed">
+                        Продолжай решать задачи — каждая сессия повышает твой уровень!
+                      </p>
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* ── Final Simulation Block (11th grade only) ── */}
+              {is11Grade && (
+                <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm space-y-4 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/40 to-transparent pointer-events-none rounded-r-3xl" />
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 relative z-10">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">🎓</span>
+                        <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight">
+                          Финальная аттестация и Сертификат
+                        </h3>
+                        {studentStats?.finalExamScore !== undefined && (
+                          <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">
+                            Сдано
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
+                        {studentStats?.finalExamScore !== undefined
+                          ? `Результат: ${studentStats.finalExamScore} / 140 баллов. Нажмите «Подробнее», чтобы увидеть полный анализ.`
+                          : "Пройдите итоговую комплексную симуляцию ЕНТ. После завершения вы получите цифровой сертификат."}
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex gap-2">
+                      {studentStats?.finalExamScore !== undefined ? (
+                        <>
+                          <button
+                            onClick={() => setActiveTab("simulation_results")}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-2xl text-xs font-black shadow-md transition-all"
+                          >
+                            📋 Открыть разбор
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm("Пересдать? Предыдущий результат будет удалён.")) {
+                                setOnboardingStep("final_exam");
+                              }
+                            }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-2xl text-xs font-bold transition-all"
+                          >
+                            Пересдать
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setOnboardingStep("final_exam")}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-xs font-black shadow-md hover:shadow-lg transition-all"
+                        >
+                          🚀 Начать симуляцию ЕНТ
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -1895,11 +2268,16 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                     Бесконечные умные задачи по кодификатору ЕНТ.
                   </p>
                 </div>
-                {!geminiKey && (
-                  <span className="text-[10px] bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold">
-                    ✨ AI Free Mode
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <span className="text-[10px] bg-slate-100 border border-slate-200 text-slate-600 px-2.5 py-1 rounded-xl font-bold">
+                    Задач сегодня: {studentStats?.lastActiveDate === new Date().toLocaleDateString("en-CA") ? (studentStats?.dailyTasksSolved || 0) : 0} / {studentStats?.role === "founder" || studentStats?.tariff === "whitelisted" ? "∞" : studentStats?.tariff === "ultimate" ? 500 : studentStats?.tariff === "premium" ? 300 : studentStats?.tariff === "basic" ? 50 : 15}
                   </span>
-                )}
+                  {!geminiKey && (
+                    <span className="text-[10px] bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-xl font-bold font-mono">
+                      ✨ Fallback Mode
+                    </span>
+                  )}
+                </div>
               </div>
 
               {!generatedTask && !tasksGenerating && (
@@ -1910,45 +2288,69 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                         1. Предмет
                       </label>
                       <div className="flex flex-col gap-2">
-                        {(studentStats?.subjectsMastery || []).map((sub) => {
-                          let icon = "📚";
-                          if (
-                            sub.name.includes("Математика") ||
-                            sub.name.includes("математическая")
-                          )
-                            icon = "📐";
-                          else if (sub.name.includes("Физика")) icon = "⚡";
-                          else if (sub.name.includes("Биология")) icon = "🧬";
-                          else if (sub.name.includes("Химия")) icon = "🧪";
-                          else if (sub.name.includes("История")) icon = "🕌";
-                          else if (sub.name.includes("Информатика"))
-                            icon = "💻";
-                          else if (sub.name.includes("География")) icon = "🌍";
-                          else if (
-                            sub.name.includes("право") ||
-                            sub.name.includes("Право")
-                          )
-                            icon = "⚖️";
-                          else if (
-                            sub.name.includes("язык") ||
-                            sub.name.includes("литература")
-                          )
-                            icon = "✍️";
-                          else if (sub.name.includes("чтения")) icon = "📖";
+                        {(() => {
+                          const isFree = !studentStats?.tariff || studentStats.tariff === "free";
+                          const activeFreeSubName = studentStats?.activeFreeSubject || studentStats?.subjectsMastery?.[3]?.name || "Математика";
 
-                          return (
-                            <button
-                              key={sub.id}
-                              onClick={() => {
-                                setTasksSubject(sub.name);
-                                setTasksTopic(getTopicsForSubject(sub.name)[0]);
-                              }}
-                              className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-xs font-bold transition-all text-left ${activeTasksSubject === sub.name ? "bg-indigo-50 border-indigo-500 text-indigo-700" : "bg-slate-50 text-slate-600"}`}
-                            >
-                              <span>{icon}</span> {sub.name}
-                            </button>
-                          );
-                        })}
+                          return (studentStats?.subjectsMastery || []).map((sub) => {
+                            let icon = "📚";
+                            if (
+                              sub.name.includes("Математика") ||
+                              sub.name.includes("математическая")
+                            )
+                              icon = "📐";
+                            else if (sub.name.includes("Физика")) icon = "⚡";
+                            else if (sub.name.includes("Биология")) icon = "🧬";
+                            else if (sub.name.includes("Химия")) icon = "🧪";
+                            else if (sub.name.includes("История")) icon = "🕌";
+                            else if (sub.name.includes("Информатика"))
+                              icon = "💻";
+                            else if (sub.name.includes("География")) icon = "🌍";
+                            else if (
+                              sub.name.includes("право") ||
+                              sub.name.includes("Право")
+                            )
+                              icon = "⚖️";
+                            else if (
+                              sub.name.includes("язык") ||
+                              sub.name.includes("литература")
+                            )
+                              icon = "✍️";
+                            else if (sub.name.includes("чтения")) icon = "📖";
+
+                            const isLocked = isFree && sub.name !== activeFreeSubName;
+
+                            return (
+                              <button
+                                key={sub.id}
+                                onClick={async () => {
+                                  if (isLocked) {
+                                    if (confirm(`🔒 На бесплатном тарифе доступен только 1 предмет одновременно.\n\nСейчас активен: "${activeFreeSubName}".\n\nХотите переключить ваш единственный бесплатный предмет на "${sub.name}"?`)) {
+                                      try {
+                                        await updateDoc(doc(db, "users", user.uid), {
+                                          activeFreeSubject: sub.name
+                                        });
+                                        setTasksSubject(sub.name);
+                                        setTasksTopic(getTopicsForSubject(sub.name)[0]);
+                                      } catch (e) {
+                                        console.error("Error updating activeFreeSubject:", e);
+                                      }
+                                    }
+                                    return;
+                                  }
+                                  setTasksSubject(sub.name);
+                                  setTasksTopic(getTopicsForSubject(sub.name)[0]);
+                                }}
+                                className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border text-xs font-bold transition-all text-left ${activeTasksSubject === sub.name ? "bg-indigo-50 border-indigo-500 text-indigo-700 font-extrabold" : "bg-slate-50 text-slate-600"} ${isLocked ? "opacity-60 border-dashed" : ""}`}
+                              >
+                                <span className="flex items-center gap-3">
+                                  <span>{icon}</span> {sub.name}
+                                </span>
+                                {isLocked && <span className="text-[10px] text-amber-500 font-bold shrink-0">🔒 Free</span>}
+                              </button>
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                     <div className="space-y-2">
@@ -2087,118 +2489,255 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
             />
           )}
 
-          {activeTab === "exam_prep" && (
-            <ExamPrep
-              studentStats={studentStats}
-              geminiKey={geminiKey}
-              user={user}
-              onStartPractice={(topic, subject) => {
-                setTasksSubject(subject || "Math");
-                setTasksTopic(topic);
-                setActiveTab("tasks");
-              }}
-            />
-          )}
-
-          {activeTab === "calendar" && (
-            <div className="h-full">
-              <InteractiveCalendar 
-                events={calendarEvents}
-                onAddEvent={async (evt) => {
-                  try {
-                    await addDoc(collection(db, "calendar"), {
-                      studentId: user.uid,
-                      title: evt.title,
-                      date: evt.date,
-                      time: evt.time || "12:00",
-                      type: evt.type || "lesson",
-                      completed: false,
-                      createdAt: new Date().toISOString()
-                    });
-                  } catch (e) {
-                    console.error("Error adding event: ", e);
-                  }
-                }}
-                onAutoSchedule={handleAiAutoSchedule}
-                onToggleComplete={async (eventId, completed) => {
-                  try {
-                    await updateDoc(doc(db, "calendar", eventId), { completed });
-                  } catch (e) {
-                    console.error("Error toggling event completion:", e);
-                  }
-                }}
-                onEventClick={(evt) => {
-                  if (evt.subject && evt.topic) {
-                    setTasksSubject(evt.subject);
-                    setTasksTopic(evt.topic);
-                    setActiveTab("tasks");
-                  }
-                }}
-              />
-            </div>
-          )}
-
-          {activeTab === "progress" && (
-            <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto">
-              <h1 className="text-2xl font-black text-slate-900">
-                📈 Сводная аналитика успеваемости
-              </h1>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {studentStats?.subjectsMastery?.map((subject, idx) => (
-                  <div
-                    key={idx}
-                    className="border border-slate-100 p-4 rounded-2xl space-y-2"
-                  >
-                    <p className="text-xs font-bold text-slate-800">
-                      {subject.name}
-                    </p>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${subject.color}`}
-                        style={{ width: `${subject.progress}%` }}
-                      ></div>
+          {activeTab === "exam_prep" && (() => {
+            if (!hasProAccess) {
+              return (
+                <div className="h-full flex items-center justify-center p-4">
+                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-xl shadow-slate-200/40 select-none">
+                    <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-3xl mx-auto border border-emerald-100 shadow-sm">
+                      🔒
                     </div>
-                    <p className="text-[10px] text-slate-400 uppercase font-mono">
-                      Прогресс: {subject.progress}%
-                    </p>
-                  </div>
-                ))}
-              </div>
-              {studentStats?.attentionRequired?.length > 0 && (
-                <div className="border border-red-100 bg-red-50/10 p-5 rounded-2xl space-y-3">
-                  <h3 className="font-black text-red-600 text-sm uppercase tracking-wider">
-                    🚨 Проблемы из проверочных школьных работ:
-                  </h3>
-                  <div className="space-y-2">
-                    {studentStats.attentionRequired.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="flex justify-between items-center bg-white p-3 rounded-xl border border-red-50 text-xs"
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-black text-slate-900">Персональный ИИ-План</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        Умная траектория подготовки, расчет весов тем и персональные рекомендации ИИ-тьютора доступны только на тарифах <span className="text-emerald-600 font-bold">Pro</span> и <span className="text-indigo-600 font-bold">Ultra</span>.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          setIsSettingsOpen(true);
+                          setActiveTab("dashboard");
+                        }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-emerald-200 cursor-pointer"
                       >
-                        <div>
-                          <span className="font-bold text-slate-800">
-                            {item.topic}
-                          </span>
-                          <p className="text-[10px] text-slate-400">
-                            {item.subject}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setTasksSubject(item.subject);
-                            setTasksTopic(item.topic);
-                            setActiveTab("tasks");
-                          }}
-                          className="bg-red-500 text-white px-3 py-1 rounded-lg text-[11px] font-bold"
-                        >
-                          Отработать в ИИ-Тренажере
-                        </button>
-                      </div>
-                    ))}
+                        ⚡ Перейти на тариф Pro / Ultra
+                      </button>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
+              );
+            }
+            return (
+              <ExamPrep
+                studentStats={studentStats}
+                geminiKey={geminiKey}
+                user={user}
+                onStartPractice={(topic, subject) => {
+                  setTasksSubject(subject || "Math");
+                  setTasksTopic(topic);
+                  setActiveTab("tasks");
+                }}
+              />
+            );
+          })()}
+
+          {activeTab === "calendar" && (() => {
+            const hasAccess = 
+              studentStats?.tariff === "premium" || 
+              studentStats?.tariff === "ultimate" || 
+              studentStats?.tariff === "whitelisted" || 
+              studentStats?.role === "founder";
+              
+            if (!hasAccess) {
+              return (
+                <div className="h-full flex items-center justify-center p-4">
+                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-xl shadow-slate-200/40 select-none">
+                    <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mx-auto border border-indigo-100 shadow-sm">
+                      🔒
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-black text-slate-900">Умный ИИ-календарь</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        Функция автоматического ИИ-расписания уроков, дедлайнов и подготовки доступна только на тарифах <span className="text-indigo-600 font-bold">Pro</span> и <span className="text-indigo-600 font-bold">Ultra</span>.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => setIsSettingsOpen(true)}
+                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-200 cursor-pointer"
+                      >
+                        ⚡ Перейти на тариф Pro / Ultra
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="h-full">
+                <InteractiveCalendar 
+                  events={calendarEvents}
+                  onAddEvent={async (evt) => {
+                    try {
+                      await addDoc(collection(db, "calendar"), {
+                        studentId: user.uid,
+                        title: evt.title,
+                        date: evt.date,
+                        time: evt.time || "12:00",
+                        type: evt.type || "lesson",
+                        completed: false,
+                        createdAt: new Date().toISOString()
+                      });
+                    } catch (e) {
+                      console.error("Error adding event: ", e);
+                    }
+                  }}
+                  onAutoSchedule={handleAiAutoSchedule}
+                  onToggleComplete={async (eventId, completed) => {
+                    try {
+                      await updateDoc(doc(db, "calendar", eventId), { completed });
+                    } catch (e) {
+                      console.error("Error toggling event completion:", e);
+                    }
+                  }}
+                  onEventClick={(evt) => {
+                    if (evt.subject && evt.topic) {
+                      setTasksSubject(evt.subject);
+                      setTasksTopic(evt.topic);
+                      setActiveTab("tasks");
+                    }
+                  }}
+                />
+              </div>
+            );
+          })()}
+
+          {activeTab === "progress" && (() => {
+            const isFree = !studentStats?.tariff || studentStats.tariff === "free";
+            if (isFree) {
+              return (
+                <div className="h-full flex items-center justify-center p-4">
+                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-xl shadow-slate-200/40 select-none">
+                    <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mx-auto border border-indigo-100 shadow-sm">
+                      🔒
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-black text-slate-900">Аналитика успеваемости</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        Подробная аналитика освоения тем, статистика ошибок и отслеживание слабых мест доступны на платных тарифах.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          setIsSettingsOpen(true);
+                          setActiveTab("dashboard");
+                        }}
+                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-200 cursor-pointer"
+                      >
+                        ⚡ Улучшить тариф
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            const activeWeakList = (studentStats?.attentionNeeded?.length > 0)
+              ? studentStats.attentionNeeded
+              : (studentStats?.attentionRequired || []);
+
+            return (
+              <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6 max-w-4xl mx-auto">
+                <h1 className="text-2xl font-black text-slate-900">
+                  📈 Сводная аналитика успеваемости
+                </h1>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {studentStats?.subjectsMastery?.map((subject, idx) => (
+                    <div
+                      key={idx}
+                      className="border border-slate-100 p-4 rounded-2xl space-y-2"
+                    >
+                      <p className="text-xs font-bold text-slate-800">
+                        {subject.name}
+                      </p>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${subject.color}`}
+                          style={{ width: `${subject.progress}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-[10px] text-slate-400 uppercase font-mono">
+                        Прогресс: {subject.progress}%
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {studentStats?.tariff === "basic" ? (
+                  <div className="border border-slate-200 bg-slate-50/50 p-6 rounded-2xl text-center relative overflow-hidden">
+                    <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex flex-col items-center justify-center text-center p-4 z-10">
+                      <span className="text-lg">🔒</span>
+                      <p className="text-xs font-black text-slate-700 mt-1">Отслеживание слабых тем и ошибок</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5 leading-normal max-w-xs">
+                        Система автоматического выявления слабых тем и рекомендации для отработки доступны на тарифах Pro и Ultra.
+                      </p>
+                      <button
+                        onClick={() => setIsSettingsOpen(true)}
+                        className="mt-3 px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow hover:bg-indigo-700 transition"
+                      >
+                        Перейти на Pro
+                      </button>
+                    </div>
+                    {/* Blurred mock content behind lock */}
+                    <div className="blur-sm select-none opacity-40 space-y-2">
+                      <p className="text-xs font-bold text-slate-500 text-left">Пример слабой темы:</p>
+                      <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 text-xs">
+                        <div className="text-left">
+                          <span className="font-bold text-slate-800">Квадратные уравнения</span>
+                          <p className="text-[10px] text-slate-400">Алгебра</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  activeWeakList.length > 0 && (
+                    <div className="border border-red-100 bg-red-50/10 p-5 rounded-2xl space-y-3">
+                      <h3 className="font-black text-red-600 text-sm uppercase tracking-wider">
+                        🚨 Проблемы из проверочных работ / Слабые темы:
+                      </h3>
+                      <div className="space-y-2">
+                        {activeWeakList.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="flex justify-between items-center bg-white p-3 rounded-xl border border-red-50 text-xs"
+                          >
+                            <div>
+                              <span className="font-bold text-slate-800">
+                                {item.topic}
+                              </span>
+                              <p className="text-[10px] text-slate-400">
+                                {item.subject}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setTasksSubject(item.subject);
+                                setTasksTopic(item.topic);
+                                setActiveTab("tasks");
+                              }}
+                              className="bg-red-500 text-white px-3 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:bg-red-600 transition"
+                            >
+                              Отработать в ИИ-Тренажере
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            );
+          })()}
+
+          {activeTab === "ceo_panel" && (
+            <CeoPanel
+              user={user}
+              studentStats={studentStats}
+              geminiKey={geminiKey}
+            />
           )}
 
           <footer className="pt-8 border-t border-slate-200/60 text-center text-xs text-slate-400">
@@ -2213,506 +2752,29 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
       </div>
 
       {isSettingsOpen && (
-        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl text-slate-800 space-y-5 relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setIsSettingsOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1"
-            >
-              ✕
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl">
-                💳
-              </div>
-              <div>
-                <h3 className="font-black text-sm uppercase tracking-wider">
-                  Подписка
-                </h3>
-                <p className="text-[10px] text-slate-400">
-                  Управление тарифом и планами обучения
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
-                  Тарифные планы
-                </h4>
-                {studentStats?.role === "founder" || studentStats?.tariff === "founder" ? (
-                  <span className="text-[9px] bg-indigo-50 text-indigo-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-indigo-200/40">
-                    👑 CEO & Founder (Всё включено)
-                  </span>
-                ) : studentStats?.tariff === "whitelisted" ? (
-                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
-                    🌟 Whitelisted Premium
-                  </span>
-                ) : studentStats?.tariff === "premium" ? (
-                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-emerald-200/40">
-                    👑 Premium активен
-                  </span>
-                ) : studentStats?.tariff === "ultimate" ? (
-                  <span className="text-[9px] bg-purple-50 text-purple-600 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-purple-200/40">
-                    🔮 Ultimate активен
-                  </span>
-                ) : (
-                  <span className="text-[9px] bg-slate-100 text-slate-500 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border border-slate-200">
-                    ⚠️ Базовый тариф
-                  </span>
-                )}
-              </div>
-
-              {/* Plans List */}
-              <div className="space-y-3">
-                
-                {/* Plan 1: Free */}
-                <div className={`border p-3 rounded-2xl transition duration-200 flex justify-between items-center ${
-                  (!studentStats?.tariff || studentStats.tariff === "free")
-                    ? "border-slate-300 bg-slate-50"
-                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
-                }`}>
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-700">Базовый</span>
-                      <span className="text-[8px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold uppercase">Free</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 leading-tight">3 ИИ-запроса в день, стандартный календарь</p>
-                  </div>
-                  <div className="text-right flex flex-col items-end">
-                    <p className="text-xs font-black text-slate-700">0 ₸ / мес</p>
-                    {(!studentStats?.tariff || studentStats.tariff === "free") ? (
-                      <p className="text-[8px] text-slate-400 font-bold mt-1 uppercase tracking-wider">Текущий</p>
-                    ) : (
-                      <button 
-                        onClick={async () => {
-                          if (studentStats?.role === "founder") {
-                            alert("Как CEO вы имеете полный доступ ко всем функциям.");
-                            return;
-                          }
-                          if (confirm("Вы действительно хотите перейти на Базовый тариф?")) {
-                            await updateDoc(doc(db, "users", user.uid), { tariff: "free" });
-                            alert("Вы успешно перешли на Базовый тариф.");
-                          }
-                        }}
-                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1 cursor-pointer"
-                      >
-                        Перейти
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Plan 2: Premium */}
-                <div className={`border p-3 rounded-2xl transition duration-200 relative flex justify-between items-center ${
-                  (studentStats?.tariff === "premium" || studentStats?.tariff === "whitelisted" || studentStats?.role === "founder")
-                    ? "border-emerald-500 bg-emerald-50/5"
-                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
-                }`}>
-                  {(studentStats?.tariff === "premium" || studentStats?.tariff === "whitelisted" || studentStats?.role === "founder") && (
-                    <div className="absolute -top-2.5 right-4 bg-emerald-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                      {studentStats?.role === "founder" ? "Пожизненный" : "Активен"}
-                    </div>
-                  )}
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-emerald-800">Премиум ЕНТ</span>
-                      <span className="text-[8px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Популярный</span>
-                    </div>
-                    <p className="text-[10px] text-emerald-700/80 leading-tight">Безлимитный ИИ, Умный календарь, авторасписание</p>
-                  </div>
-                  <div className="text-right flex flex-col items-end">
-                    <p className="text-xs font-black text-emerald-800">4 990 ₸ / мес</p>
-                    {(studentStats?.tariff === "premium" || studentStats?.tariff === "whitelisted" || studentStats?.role === "founder") ? (
-                      <p className="text-[8px] text-emerald-600 font-bold mt-1 uppercase tracking-wider">
-                        {studentStats?.tariff === "whitelisted" ? "Вайтлист" : studentStats?.role === "founder" ? "CEO" : "Активен"}
-                      </p>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setSelectedPlanForPay({ id: "premium", name: "Премиум ЕНТ", price: "4 990 ₸" });
-                          setIsPaymentOpen(true);
-                        }}
-                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1 cursor-pointer"
-                      >
-                        Купить
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Plan 3: Ultimate */}
-                <div className={`border p-3 rounded-2xl transition duration-200 relative flex justify-between items-center ${
-                  (studentStats?.tariff === "ultimate" || studentStats?.role === "founder")
-                    ? "border-purple-500 bg-purple-50/5"
-                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
-                }`}>
-                  {(studentStats?.tariff === "ultimate" || studentStats?.role === "founder") && (
-                    <div className="absolute -top-2.5 right-4 bg-purple-500 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
-                      {studentStats?.role === "founder" ? "Пожизненный" : "Активен"}
-                    </div>
-                  )}
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-purple-800">Ультимейт ЕНТ</span>
-                      <span className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Максимум</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 leading-tight">Премиум + Личный ИИ-ментор 24/7, сложные симуляции</p>
-                  </div>
-                  <div className="text-right flex flex-col items-end">
-                    <p className="text-xs font-black text-purple-800">9 990 ₸ / мес</p>
-                    {(studentStats?.tariff === "ultimate" || studentStats?.role === "founder") ? (
-                      <p className="text-[8px] text-purple-600 font-bold mt-1 uppercase tracking-wider">
-                        {studentStats?.role === "founder" ? "CEO" : "Активен"}
-                      </p>
-                    ) : (
-                      <button 
-                        onClick={() => {
-                          setSelectedPlanForPay({ id: "ultimate", name: "Ультимейт ЕНТ", price: "9 990 ₸" });
-                          setIsPaymentOpen(true);
-                        }}
-                        className="text-[9px] text-indigo-600 hover:text-indigo-700 font-bold transition mt-1 cursor-pointer"
-                      >
-                        Купить
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Founder Control Panel */}
-              {(studentStats?.role === "founder" || user?.email?.toLowerCase() === "daniilivakin30@gmail.com") && (
-                <div className="border-t border-slate-100 pt-4 mt-2 space-y-3">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-indigo-600 flex items-center gap-1.5">
-                    <span>🔑</span> Панель CEO & Founder
-                  </h4>
-                  <p className="text-[9px] text-slate-400 leading-normal">
-                    Добавьте email адреса ваших друзей, чтобы выдать им пожизненный бесплатный доступ к Premium-тарифам. Это безопасно и валидируется на сервере.
-                  </p>
-
-                  {/* Add email form */}
-                  <form onSubmit={handleAddWhitelistEmail} className="flex gap-2">
-                    <input
-                      type="email"
-                      placeholder="friend@example.com"
-                      value={newWhitelistEmail}
-                      onChange={(e) => setNewWhitelistEmail(e.target.value)}
-                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500"
-                      required
-                    />
-                    <button
-                      type="submit"
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
-                    >
-                      Выдать доступ
-                    </button>
-                  </form>
-
-                  {/* Whitelisted Emails List */}
-                  <div className="space-y-1.5">
-                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                      Приглашенные друзья ({whitelistEmails.length}):
-                    </div>
-                    {whitelistEmails.length === 0 ? (
-                      <p className="text-[10px] text-slate-400 italic">Список пуст</p>
-                    ) : (
-                      <div className="max-h-28 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-100 bg-slate-50/20">
-                        {whitelistEmails.map((item) => (
-                          <div key={item.email} className="px-3 py-1.5 flex justify-between items-center text-[10px]">
-                            <span className="font-semibold text-slate-700">{item.email}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveWhitelistEmail(item.email)}
-                              className="text-rose-500 hover:text-rose-700 font-bold transition cursor-pointer"
-                            >
-                              Аннулировать
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-            </div>
-
-            <div className="pt-2">
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg"
-              >
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
+        <SubscriptionModal
+          user={user}
+          studentStats={studentStats}
+          onClose={() => setIsSettingsOpen(false)}
+        />
       )}
 
-      {/* Credit Card Payment Modal */}
-      {isPaymentOpen && selectedPlanForPay && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-slate-800 relative space-y-4">
-            
-            {/* Header */}
-            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
-              <span className="text-xl">💳</span>
-              <div>
-                <h3 className="font-black text-sm uppercase tracking-wider">Оплата подписки</h3>
-                <p className="text-[10px] text-slate-400">Тариф: {selectedPlanForPay.name}</p>
-              </div>
-            </div>
-
-            {/* Price Info */}
-            <div className="bg-slate-50 p-3.5 rounded-2xl flex justify-between items-center border border-slate-100">
-              <span className="text-xs text-slate-500 font-medium">К оплате (ежемесячно):</span>
-              <span className="text-base font-black text-indigo-600">{selectedPlanForPay.price} / мес</span>
-            </div>
-
-            {/* Credit Card Mock Form */}
-            <form onSubmit={handleCardPaymentSubmit} className="space-y-3.5">
-              
-              {/* Card Number */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Номер карты</label>
-                <input
-                  type="text"
-                  placeholder="0000 0000 0000 0000"
-                  value={paymentForm.number}
-                  onChange={handleCardNumberChange}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 font-mono"
-                  required
-                />
-              </div>
-
-              {/* Row: Expiry & CVC */}
-              <div className="grid grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Срок действия</label>
-                  <input
-                    type="text"
-                    placeholder="ММ/ГГ"
-                    value={paymentForm.expiry}
-                    onChange={handleExpiryChange}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 font-mono"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">CVC / CVV</label>
-                  <input
-                    type="password"
-                    placeholder="•••"
-                    value={paymentForm.cvc}
-                    onChange={handleCvcChange}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 font-mono"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Cardholder Name */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Владелец карты</label>
-                <input
-                  type="text"
-                  placeholder="IVAN IVANOV"
-                  value={paymentForm.name}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 placeholder:text-slate-300"
-                  required
-                />
-              </div>
-
-              {/* Error Display */}
-              {paymentError && (
-                <div className="text-[10px] text-rose-500 bg-rose-50 border border-rose-100 rounded-xl p-2.5 font-bold">
-                  ⚠️ {paymentError}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPaymentOpen(false);
-                    setPaymentForm({ number: "", expiry: "", cvc: "", name: "" });
-                    setPaymentError("");
-                  }}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer animate-pulse"
-                >
-                  Оплатить
-                </button>
-              </div>
-
-            </form>
-
-            {/* Spinner Overlay when processing */}
-            {isPaying && (
-              <div className="absolute inset-0 bg-white/95 rounded-3xl flex flex-col items-center justify-center p-6 space-y-4 z-20">
-                <div className="w-12 h-12 rounded-full border-[3px] border-indigo-500/20 border-t-indigo-500 border-r-indigo-500 animate-spin"></div>
-                <div className="text-center">
-                  <p className="text-xs font-bold text-slate-700">Безопасная обработка...</p>
-                  <p className="text-[9px] text-slate-400 mt-1 font-mono">{paymentStepText}</p>
-                </div>
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
-      {/* Congratulations Whitelist Modal */}
       {isCongratsOpen && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xl z-[120] flex items-center justify-center p-4">
-          <div className="bg-gradient-to-tr from-slate-900 via-indigo-950 to-purple-950 w-full max-w-md rounded-[32px] p-8 shadow-2xl relative border border-indigo-500/30 text-center space-y-6 text-white overflow-hidden">
-            
-            {/* Background glowing effects */}
-            <div className="absolute -top-12 -left-12 w-40 h-40 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none"></div>
-            <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-purple-500/20 rounded-full blur-2xl pointer-events-none"></div>
-            
-            {/* Confetti animations / header emoji */}
-            <div className="relative">
-              <span className="text-6xl filter drop-shadow-lg inline-block animate-bounce [animation-duration:2.5s]">🎉</span>
-              <span className="absolute -top-2 left-6 text-2xl animate-ping opacity-60">✨</span>
-              <span className="absolute -bottom-2 right-6 text-2xl animate-ping [animation-delay:1s] opacity-60">🌟</span>
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-200 via-white to-purple-200">
-                Поздравляем с Premium!
-              </h2>
-              <div className="h-0.5 w-16 bg-gradient-to-r from-indigo-500 to-purple-500 mx-auto rounded-full mt-2"></div>
-            </div>
-
-            {/* Congrats Text */}
-            <div className="space-y-4">
-              <p className="text-xs text-indigo-200/90 font-medium tracking-wide">
-                Вам выдан бесплатный Premium-доступ к образовательной платформе
-              </p>
-              
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-4.5 space-y-2 shadow-inner backdrop-blur-sm">
-                <p className="text-sm font-black tracking-tight text-indigo-300 uppercase">
-                  EduTrack ЕНТ AI
-                </p>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Подарок предоставлен лично основателем проекта:
-                </p>
-                <p className="text-base font-extrabold text-white tracking-wide bg-gradient-to-r from-indigo-500 to-purple-500 py-1.5 px-4 rounded-xl shadow-sm border border-indigo-400/20 inline-block">
-                  👑 Ivakin Daniil
-                </p>
-              </div>
-
-              <div className="text-xs text-slate-400 leading-relaxed italic max-w-sm mx-auto pt-2">
-                "Желаю успешной сдачи ЕНТ на 140 баллов, легкого обучения на гранте и безграничных побед! Развивай свой интеллект на максимум вместе с наставником."
-                <span className="block mt-2 font-bold text-indigo-400 not-italic font-sans">— Даниил Ивакин, CEO & Founder</span>
-              </div>
-            </div>
-
-            {/* Accept Button */}
-            <div className="pt-2">
-              <button
-                onClick={() => {
-                  if (user) {
-                    localStorage.setItem(`has_seen_congrats_${user.uid}`, "true");
-                  }
-                  setIsCongratsOpen(false);
-                }}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3.5 rounded-2xl text-sm font-bold transition-all shadow-lg hover:shadow-indigo-500/40 hover:scale-[1.02] transform cursor-pointer animate-pulse"
-              >
-                🚀 Начать подготовку на максимум!
-              </button>
-            </div>
-            
-          </div>
-        </div>
+        <CongratsModal
+          user={user}
+          onClose={() => setIsCongratsOpen(false)}
+        />
       )}
 
       {isCertificateOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl p-8 shadow-2xl relative border-8 border-double border-amber-500/30 text-center space-y-6 text-slate-800">
-            <button
-              onClick={() => setIsCertificateOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1 print:hidden"
-            >
-              ✕
-            </button>
-            
-            {/* Certificate border decoration */}
-            <div className="absolute inset-2 border border-amber-500/20 rounded-2xl pointer-events-none"></div>
-
-            <div className="space-y-2">
-              <span className="text-4xl text-amber-500">🏆</span>
-              <h2 className="text-2xl font-serif font-black tracking-wide uppercase text-amber-800">
-                Сертификат об окончании курса
-              </h2>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                EduTrack ЕНТ AI • Подготовка к ЕНТ 2027
-              </p>
-            </div>
-
-            <div className="py-6 space-y-4">
-              <p className="text-xs italic text-slate-500">Настоящим подтверждается, что</p>
-              <h3 className="text-xl font-bold text-slate-900 underline decoration-amber-500/40 decoration-2 underline-offset-8">
-                {userName}
-              </h3>
-              <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
-                успешно завершил индивидуальную траекторию подготовки по направлению <br />
-                <span className="font-bold text-indigo-600">{studentStats?.profileCombination || "Математика и Физика"}</span>, <br />
-                прошел еженедельные срезы знаний и сдал комплексную финальную симуляцию ЕНТ с результатом
-              </p>
-              <div className="w-fit mx-auto bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-black text-2xl px-6 py-2.5 rounded-2xl shadow-md border border-amber-600/30">
-                {studentStats?.finalExamScore || 0} / 140 баллов
-              </div>
-            </div>
-
-            <div className="flex justify-between items-end pt-8 border-t border-slate-100 max-w-md mx-auto text-left text-[10px]">
-              <div>
-                <p className="text-slate-400 font-bold uppercase">Платформа обучения</p>
-                <p className="font-bold text-slate-700 mt-1">EduTrack AI ЕНТ</p>
-                <p className="text-slate-400">Дата: {studentStats?.finalExamPassedAt ? new Date(studentStats.finalExamPassedAt).toLocaleDateString("ru-RU") : new Date().toLocaleDateString("ru-RU")}</p>
-              </div>
-              <div className="text-center relative">
-                <div className="absolute -top-6 left-4 w-12 h-12 bg-indigo-500/5 rounded-full border border-indigo-500/10 flex items-center justify-center font-serif text-[8px] font-black text-indigo-600/30 select-none uppercase tracking-tight -rotate-12 pointer-events-none">
-                  Разработано Даниилом Ивакиным
-                </div>
-                <p className="text-slate-400 font-bold uppercase">Ведущий ИИ-Куратор</p>
-                <div className="font-serif italic font-bold text-slate-800 mt-1 border-b border-slate-300 pb-0.5 px-4">
-                  Gemini-2.5-Flash
-                </div>
-                <p className="text-[8px] text-slate-400 mt-0.5">Цифровая подпись подтверждена</p>
-              </div>
-            </div>
-
-            {/* Watermark */}
-            <div className="pt-2 text-center text-[8px] text-slate-300 font-bold uppercase tracking-widest select-none pointer-events-none">
-              developed by Ivakin Daniil
-            </div>
-
-            <div className="flex justify-center gap-3 pt-4 print:hidden">
-              <button
-                onClick={() => window.print()}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
-              >
-                🖨️ Распечатать сертификат
-              </button>
-              <button
-                onClick={() => setIsCertificateOpen(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-5 py-2.5 rounded-xl text-xs font-bold transition-all"
-              >
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
+        <CertificateModal
+          userName={userName}
+          studentStats={studentStats}
+          onClose={() => setIsCertificateOpen(false)}
+        />
       )}
+
+
     </div>
   );
 };

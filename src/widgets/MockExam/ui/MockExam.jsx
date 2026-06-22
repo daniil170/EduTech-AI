@@ -1,118 +1,278 @@
 import { useState } from "react";
+import { getDiagnosticQuestions } from "../../../shared/data/codificator";
 
-// Добавлен ключевой именованный экспорт 'export', чтобы Workspace.jsx мог его прочитать
-export const MockExam = ({ combo, onFinish }) => {
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [answers, setAnswers] = useState({});
+export const MockExam = ({ 
+  subject, 
+  examTitle, 
+  userName, 
+  onClose, 
+  onFinish,
+  isOrientationTrack = false,
+  initialAnswers = null,
+  initialCurrentQuestion = 0
+}) => {
+  const [currentQuestion, setCurrentQuestion] = useState(initialCurrentQuestion);
+  const [answers, setAnswers] = useState(initialAnswers || {});
   const [showResultsPreview, setShowResultsPreview] = useState(false);
+  const [skipNotice, setSkipNotice] = useState(null);
 
-  // Фиксированный пул демонстрационных вопросов для входного ИИ-теста
-  const sampleQuestions = [
-    {
-      id: 1,
-      subject: "Обязательный блок",
-      text: "В каком году было образовано Казахское ханство под предводительством Керея и Жанибека?",
-      options: ["1465 год", "1380 год", "1511 год", "1493 год"],
-      correct: 0
-    },
-    {
-      id: 2,
-      subject: "Обязательный блок",
-      text: "Какое из чисел является наименьшим общим кратным (НОК) для чисел 12 и 18?",
-      options: ["6", "24", "36", "72"],
-      correct: 2
-    },
-    {
-      id: 3,
-      subject: combo,
-      text: `Специализированный вопрос по профильной комбинации [${combo}]: Определите верное утверждение для базовых законов данной дисциплины.`,
-      options: [
-        "Утверждение А (Оптимальный баланс системы)",
-        "Утверждение Б (Возрастание энтропии среды)",
-        "Утверждение В (Линейная зависимость параметров)",
-        "Утверждение Г (Обратная пропорциональность факторов)"
-      ],
-      correct: 0
-    }
-  ];
+  // Check if this is the entrance diagnostic test or a normal mock exam
+  const isDiagnostic = subject && (subject.includes("–") || subject.includes("-") || subject === "Творческий экзамен" || isOrientationTrack);
+
+  // Load diagnostic questions from the codificator pool or create a fallback question
+  const sampleQuestions = isDiagnostic 
+    ? getDiagnosticQuestions(subject, isOrientationTrack)
+    : [
+        {
+          id: "mock-1",
+          subject: subject || "Математика",
+          topic: "Общая теория",
+          text: `Тестовый специализированный вопрос по предмету [${subject || "Дисциплина"}]: Выберите наиболее точное утверждение для законов данной темы.`,
+          options: [
+            "Утверждение А (Оптимальный баланс системы)",
+            "Утверждение Б (Возрастание энтропии среды)",
+            "Утверждение В (Линейная зависимость параметров)",
+            "Утверждение Г (Обратная пропорциональность факторов)"
+          ],
+          correct: 0
+        }
+      ];
 
   const handleSelectOption = (optionIndex) => {
     setAnswers({ ...answers, [currentQuestion]: optionIndex });
   };
 
-  const handleNext = () => {
-    if (currentQuestion < sampleQuestions.length - 1) {
-      setCurrentQuestion(currentQuestion + 1);
-    } else {
-      setShowResultsPreview(true);
+  // Adaptive skipping logic helper
+  const checkAdaptiveSkip = (newAnswers, currentIdx) => {
+    const currentQ = sampleQuestions[currentIdx];
+    if (!currentQ || !isDiagnostic || isOrientationTrack) return { skipped: false, updatedAnswers: newAnswers };
+
+    // Do not skip compulsory subjects since they only have 5-6 questions in total
+    const isCompulsory = ["История Казахстана", "Математическая грамотность", "Грамотность чтения"].includes(currentQ.subject);
+    if (isCompulsory) return { skipped: false, updatedAnswers: newAnswers };
+
+    // Find all questions in this specific topic block
+    const blockIndices = sampleQuestions
+      .map((q, i) => (q.subject === currentQ.subject && q.topic === currentQ.topic) ? i : -1)
+      .filter(i => i !== -1);
+
+    // We apply this if we have exactly 3 questions in this topic block, and the current question is the 2nd one
+    if (blockIndices.length === 3 && currentIdx === blockIndices[1]) {
+      const idx0 = blockIndices[0];
+      const idx1 = blockIndices[1];
+      const idx2 = blockIndices[2];
+
+      const ans0 = newAnswers[idx0];
+      const ans1 = newAnswers[idx1];
+
+      if (ans0 !== undefined && ans1 !== undefined) {
+        const isCorrect0 = ans0 === sampleQuestions[idx0].correct;
+        const isCorrect1 = ans1 === sampleQuestions[idx1].correct;
+
+        if (isCorrect0 && isCorrect1) {
+          // Both correct: skip the 3rd question and auto-mark it as correct
+          const updated = { ...newAnswers, [idx2]: sampleQuestions[idx2].correct };
+          return { skipped: true, skippedCorrect: true, updatedAnswers: updated };
+        } else if (!isCorrect0 && !isCorrect1) {
+          // Both incorrect: skip the 3rd question and auto-mark it as incorrect (-1)
+          const updated = { ...newAnswers, [idx2]: -1 };
+          return { skipped: true, skippedCorrect: false, updatedAnswers: updated };
+        }
+      }
     }
+
+    return { skipped: false, updatedAnswers: newAnswers };
+  };
+
+  const handleNext = () => {
+    const nextAnswers = { ...answers };
+    const { skipped, skippedCorrect, updatedAnswers } = checkAdaptiveSkip(nextAnswers, currentQuestion);
+    
+    setAnswers(updatedAnswers);
+
+    if (skipped) {
+      const nextIdx = currentQuestion + 1;
+      const skippedQ = sampleQuestions[nextIdx];
+      const noticeText = skippedCorrect
+        ? `⚡ ИИ: тема «${skippedQ.topic}» усвоена отлично! Следующий вопрос зачтен как верный для экономии времени.`
+        : `🎯 ИИ: тема «${skippedQ.topic}» требует внимания. Вопрос пропущен для сокращения времени теста.`;
+      
+      setSkipNotice(noticeText);
+
+      // Auto-fade notice after 4 seconds
+      setTimeout(() => setSkipNotice(null), 4000);
+
+      if (currentQuestion < sampleQuestions.length - 2) {
+        setCurrentQuestion(currentQuestion + 2);
+      } else {
+        setShowResultsPreview(true);
+      }
+    } else {
+      setSkipNotice(null);
+      if (currentQuestion < sampleQuestions.length - 1) {
+        setCurrentQuestion(currentQuestion + 1);
+      } else {
+        setShowResultsPreview(true);
+      }
+    }
+  };
+
+  const handlePause = () => {
+    localStorage.setItem("diagnostic_paused_subject", subject);
+    localStorage.setItem("diagnostic_paused_answers", JSON.stringify(answers));
+    localStorage.setItem("diagnostic_paused_current", currentQuestion.toString());
+    localStorage.setItem("diagnostic_paused_is_orientation", isOrientationTrack ? "true" : "false");
+    if (onClose) onClose();
   };
 
   const calculateScorePercent = () => {
     let correctCount = 0;
+    let gradedCount = 0;
+    
     sampleQuestions.forEach((q, idx) => {
-      if (answers[idx] === q.correct) {
-        correctCount++;
+      const userAns = answers[idx];
+      if (userAns !== undefined) {
+        gradedCount++;
+        if (userAns === q.correct) {
+          correctCount++;
+        }
       }
     });
-    return Math.round((correctCount / sampleQuestions.length) * 100);
+
+    if (gradedCount === 0) return 0;
+    return Math.round((correctCount / gradedCount) * 100);
+  };
+
+  const calculateTopicBreakdown = () => {
+    const breakdown = {};
+    
+    sampleQuestions.forEach((q, idx) => {
+      const userAns = answers[idx];
+      if (userAns === undefined) return; // not answered or skipped without grading (should not happen for graded items)
+
+      const isCorrect = userAns === q.correct;
+      const sub = q.subject;
+      const top = q.topic;
+      
+      if (!breakdown[sub]) {
+        breakdown[sub] = {};
+      }
+      if (!breakdown[sub][top]) {
+        breakdown[sub][top] = { correct: 0, total: 0 };
+      }
+      breakdown[sub][top].total += 1;
+      if (isCorrect) {
+        breakdown[sub][top].correct += 1;
+      }
+    });
+    
+    // Convert to rate (0.0 to 1.0)
+    const result = {};
+    Object.keys(breakdown).forEach(sub => {
+      result[sub] = {};
+      Object.keys(breakdown[sub]).forEach(top => {
+        const stats = breakdown[sub][top];
+        result[sub][top] = stats.total > 0 ? Number((stats.correct / stats.total).toFixed(2)) : 0.0;
+      });
+    });
+    return result;
   };
 
   const handleSubmitDiagnostic = () => {
+    localStorage.removeItem("diagnostic_paused_subject");
+    localStorage.removeItem("diagnostic_paused_answers");
+    localStorage.removeItem("diagnostic_paused_current");
+    localStorage.removeItem("diagnostic_paused_is_orientation");
+
     const finalScore = calculateScorePercent();
-    onFinish(finalScore, combo);
+    const topicBreakdown = calculateTopicBreakdown();
+    if (onFinish) {
+      onFinish(finalScore, subject, topicBreakdown);
+    }
   };
 
-  const currentQ = sampleQuestions[currentQuestion];
+  const currentQ = sampleQuestions[currentQuestion] || sampleQuestions[0];
   const isSelected = answers[currentQuestion] !== undefined;
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-gray-100 flex items-center justify-center p-4">
-      <div className="bg-[#161F30] border border-gray-800 rounded-3xl p-8 max-w-2xl w-full shadow-2xl">
+    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto select-none">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl relative my-8">
         
+        {/* Header Options */}
+        <div className="absolute top-6 right-6 flex items-center gap-2">
+          {isDiagnostic && (
+            <button 
+              onClick={handlePause}
+              className="text-slate-400 hover:text-white text-xs bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 rounded-xl border border-slate-700 font-bold transition flex items-center gap-1.5"
+            >
+              ⏱️ На паузу
+            </button>
+          )}
+          {onClose && (
+            <button 
+              onClick={onClose}
+              className="text-slate-400 hover:text-white text-xs bg-slate-800/50 hover:bg-slate-800 rounded-full p-2"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
         {!showResultsPreview ? (
           <>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pr-24">
               <div>
-                <span className="bg-blue-500/10 text-blue-400 text-xs font-semibold px-3 py-1 rounded-full border border-blue-500/20">
-                  {currentQ.subject}
+                <span className="bg-indigo-500/10 text-indigo-300 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border border-indigo-500/20">
+                  {currentQ.subject} {currentQ.topic ? `• ${currentQ.topic}` : ""}
                 </span>
-                <h3 className="text-xl font-bold text-white mt-2">Вводная ИИ-диагностика</h3>
+                <h3 className="text-lg sm:text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-purple-200 mt-2 leading-tight">
+                  {examTitle || "Диагностический тест"}
+                </h3>
               </div>
-              <span className="text-gray-400 text-sm font-medium">
-                Вопрос {currentQuestion + 1} из {sampleQuestions.length}
-              </span>
             </div>
 
-            {/* Прогресс-бар */}
-            <div className="w-full bg-[#0E1622] h-2 rounded-full mb-8 overflow-hidden">
-              <div 
-                className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full transition-all duration-300"
-                style={{ width: `${((currentQuestion + 1) / sampleQuestions.length) * 100}%` }}
-              ></div>
+            {/* Progress Bar */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 mb-2">
+                <span>Прогресс прохождения</span>
+                <span>Вопрос {currentQuestion + 1} из {sampleQuestions.length}</span>
+              </div>
+              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                <div 
+                  className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-full transition-all duration-300 shadow-md shadow-indigo-500/30"
+                  style={{ width: `${((currentQuestion + 1) / sampleQuestions.length) * 100}%` }}
+                ></div>
+              </div>
             </div>
 
-            {/* Текст вопроса */}
-            <div className="bg-[#0E1622] border border-gray-800/80 p-6 rounded-2xl mb-6">
-              <p className="text-white text-base leading-relaxed font-medium">{currentQ.text}</p>
+            {/* Skip Notice Toast */}
+            {skipNotice && (
+              <div className="bg-indigo-950/60 border border-indigo-500/30 text-indigo-200 px-4 py-3 rounded-2xl mb-5 text-xs font-bold flex items-center gap-2 animate-pulse">
+                <span>{skipNotice}</span>
+              </div>
+            )}
+
+            {/* Question Text */}
+            <div className="bg-slate-950/60 border border-slate-800/80 p-5 sm:p-6 rounded-2xl mb-6">
+              <p className="text-white text-sm sm:text-base leading-relaxed font-semibold">{currentQ.text}</p>
             </div>
 
-            {/* Варианты ответов */}
+            {/* Options */}
             <div className="space-y-3 mb-8">
               {currentQ.options.map((option, idx) => (
                 <button
                   key={idx}
                   onClick={() => handleSelectOption(idx)}
-                  className={`w-full p-4 rounded-xl text-left border transition-all duration-150 text-sm font-medium flex items-center gap-4 ${
+                  className={`w-full p-4 rounded-xl text-left border transition-all duration-150 text-xs sm:text-sm font-semibold flex items-center gap-4 ${
                     answers[currentQuestion] === idx
-                      ? "bg-blue-600/10 border-blue-500 text-white shadow-md shadow-blue-500/5"
-                      : "bg-[#0E1622] border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-200"
+                      ? "bg-indigo-600/10 border-indigo-500 text-white shadow-md shadow-indigo-500/10 scale-[1.01]"
+                      : "bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
                   }`}
                 >
-                  <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border font-bold ${
+                  <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] border font-black ${
                     answers[currentQuestion] === idx 
-                      ? "bg-blue-500 border-blue-400 text-white" 
-                      : "bg-[#161F30] border-gray-700 text-gray-400"
+                      ? "bg-indigo-500 border-indigo-400 text-white" 
+                      : "bg-slate-800 border-slate-700 text-slate-400"
                   }`}>
                     {String.fromCharCode(65 + idx)}
                   </span>
@@ -124,28 +284,30 @@ export const MockExam = ({ combo, onFinish }) => {
             <button
               onClick={handleNext}
               disabled={!isSelected}
-              className={`w-full py-3 px-6 rounded-xl font-semibold transition text-center shadow-lg ${
+              className={`w-full py-3.5 px-6 rounded-xl font-bold transition text-xs uppercase tracking-wider text-center shadow-lg ${
                 isSelected
-                  ? "bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-blue-500/10"
-                  : "bg-gray-800 text-gray-600 cursor-not-allowed shadow-none"
+                  ? "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-indigo-500/20 hover:scale-[1.01]"
+                  : "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60"
               }`}
             >
               {currentQuestion === sampleQuestions.length - 1 ? "Завершить тест" : "Следующий вопрос →"}
             </button>
           </>
         ) : (
-          <div className="text-center py-4">
+          <div className="text-center py-6">
             <div className="text-5xl mb-4 animate-bounce">🎉</div>
-            <h3 className="text-2xl font-bold text-white mb-2">Стартовый тест завершен!</h3>
-            <p className="text-gray-400 text-sm mb-8 leading-relaxed max-w-md mx-auto">
-              Отличная работа! Ответы успешно зафиксированы локальной системой. Нажмите кнопку ниже, чтобы запустить искусственный интеллект для построения расписания.
+            <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-white to-purple-200 mb-3">
+              Диагностика завершена!
+            </h3>
+            <p className="text-slate-400 text-xs sm:text-sm mb-8 leading-relaxed max-w-md mx-auto">
+              Отличная работа, {userName || "ученик"}! Ваши ответы успешно сохранены. Теперь вы можете ознакомиться с подробными результатами разбора вашего уровня знаний по темам кодификатора.
             </p>
             
             <button
               onClick={handleSubmitDiagnostic}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-4 px-6 rounded-xl transition duration-300 shadow-lg shadow-green-500/20"
+              className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs uppercase tracking-wider font-black py-4 px-6 rounded-xl transition duration-300 shadow-lg shadow-emerald-500/20 hover:scale-[1.01]"
             >
-              Сгенерировать личный кабинет и календарь ⚡
+              Посмотреть результаты диагностики ⚡
             </button>
           </div>
         )}

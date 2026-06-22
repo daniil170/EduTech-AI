@@ -14,7 +14,8 @@ export const AuthModal = ({ isOpen, onClose }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [grade, setGrade] = useState("11 класс");
-  const [daysToUnt, setDaysToUnt] = useState("");
+  const [untDate, setUntDate] = useState("");
+  const [studyTimeSlot, setStudyTimeSlot] = useState("14:00 - 20:00");
 
   if (!isOpen) return null;
 
@@ -48,13 +49,26 @@ export const AuthModal = ({ isOpen, onClose }) => {
         await signInWithEmailAndPassword(auth, email, password);
         alert("Успешный вход!");
       } else {
+        let calculatedDays = "";
+        if (grade === "11 класс" && untDate) {
+          const today = new Date();
+          const target = new Date(untDate);
+          today.setHours(0, 0, 0, 0);
+          target.setHours(0, 0, 0, 0);
+          const diffTime = target - today;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          calculatedDays = diffDays > 0 ? String(diffDays) : "0";
+        }
+
         localStorage.setItem("selected_role", "student");
         localStorage.setItem("selected_grade", grade);
-        if (grade === "11 класс") {
-          localStorage.setItem("selected_days_to_unt", daysToUnt);
+        if (grade === "11 класс" && calculatedDays) {
+          localStorage.setItem("selected_days_to_unt", calculatedDays);
         } else {
           localStorage.removeItem("selected_days_to_unt");
         }
+        localStorage.setItem("selected_study_time_slot", studyTimeSlot);
+
         await createUserWithEmailAndPassword(auth, email, password);
         alert("Успешная регистрация!");
       }
@@ -70,13 +84,26 @@ export const AuthModal = ({ isOpen, onClose }) => {
   const handleGoogleSignIn = async () => {
     setError("");
     try {
+      let calculatedDays = "";
+      if (grade === "11 класс" && untDate) {
+        const today = new Date();
+        const target = new Date(untDate);
+        today.setHours(0, 0, 0, 0);
+        target.setHours(0, 0, 0, 0);
+        const diffTime = target - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        calculatedDays = diffDays > 0 ? String(diffDays) : "0";
+      }
+
       localStorage.setItem("selected_role", "student");
       localStorage.setItem("selected_grade", grade);
-      if (grade === "11 класс") {
-        localStorage.setItem("selected_days_to_unt", daysToUnt);
+      if (grade === "11 класс" && calculatedDays) {
+        localStorage.setItem("selected_days_to_unt", calculatedDays);
       } else {
         localStorage.removeItem("selected_days_to_unt");
       }
+      localStorage.setItem("selected_study_time_slot", studyTimeSlot);
+
       await signInWithPopup(auth, googleProvider);
       alert("Успешный вход через Google!");
       onClose();
@@ -221,19 +248,31 @@ export const AuthModal = ({ isOpen, onClose }) => {
 
                 {grade === "11 класс" && (
                   <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Сколько дней осталось до ЕНТ?</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Дата сдачи ЕНТ</label>
                     <input
-                      type="number"
-                      min="1"
-                      max="365"
+                      type="date"
                       required
-                      value={daysToUnt}
-                      onChange={(e) => setDaysToUnt(e.target.value)}
-                      placeholder="Например: 120"
-                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition placeholder:text-slate-300"
+                      value={untDate}
+                      min={new Date().toISOString().split("T")[0]}
+                      onChange={(e) => setUntDate(e.target.value)}
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition text-slate-800 bg-white"
                     />
                   </div>
                 )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Свободное время для занятий</label>
+                  <select
+                    value={studyTimeSlot}
+                    onChange={(e) => setStudyTimeSlot(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition text-slate-800 bg-white"
+                  >
+                    <option value="08:00 - 14:00">🌅 Первая смена (08:00 - 14:00)</option>
+                    <option value="14:00 - 20:00">🏫 Вторая смена (14:00 - 20:00)</option>
+                    <option value="12:00 - 18:00">☀️ Дневное время (12:00 - 18:00)</option>
+                    <option value="16:00 - 22:00">🌌 Вечернее время (16:00 - 22:00)</option>
+                  </select>
+                </div>
               </div>
             )}
 
