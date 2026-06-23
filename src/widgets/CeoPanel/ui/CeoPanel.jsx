@@ -1,11 +1,39 @@
 import { useState, useEffect } from "react";
 import { db } from "../../../app/providers/Firebase/firebase";
 import { collection, getDocs, query, where, doc, updateDoc, deleteDoc } from "firebase/firestore";
+// Импортируем программу предметов для генератора[cite: 1]
+import { curriculumProgram } from "../../../shared/data/curriculum";
 
 export const CeoPanel = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState("users");
   const [pendingQuestions, setPendingQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Список доступных предметов из кодификатора[cite: 1]
+  const subjectsList = Object.keys(curriculumProgram);
+
+  // Инициализируем состояния начальными значениями
+  const [genSubject, setGenSubject] = useState(subjectsList[0] || "");
+  const [genTopic, setGenTopic] = useState(
+    subjectsList[0] && curriculumProgram[subjectsList[0]]
+      ? curriculumProgram[subjectsList[0]][0]?.name || ""
+      : ""
+  );
+  const [genCount, setGenCount] = useState(5);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genStatus, setGenStatus] = useState("");
+
+  // Правильное решение: функция вместо useEffect для синхронизации списков предмета и темы
+  const handleSubjectChange = (newSubject) => {
+    setGenSubject(newSubject);
+    
+    // Сразу же находим первую тему для выбранного предмета и обновляем её
+    if (curriculumProgram[newSubject] && curriculumProgram[newSubject].length > 0) {
+      setGenTopic(curriculumProgram[newSubject][0].name);
+    } else {
+      setGenTopic("");
+    }
+  };
 
   useEffect(() => {
     if (activeTab !== "moderation") return;
@@ -104,6 +132,43 @@ export const CeoPanel = ({ onClose }) => {
     }
   };
 
+  const handleAiGenerate = async () => {
+    if (!genSubject || !genTopic) {
+      setGenStatus("❌ Пожалуйста, выберите предмет и тему.");
+      return;
+    }
+
+    setGenLoading(true);
+    setGenStatus("🤖 ИИ генерирует вопросы ЕНТ и загружает в базу Firebase...");
+
+    try {
+      const response = await fetch("http://localhost:5001/api/generate-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: genSubject,
+          topic: genTopic,
+          count: Number(genCount),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setGenStatus(`🎉 Успешно создано задач: ${genCount}! Они отправлены на модерацию.`);
+        loadPendingQuestions();
+      } else {
+        setGenStatus(`❌ Ошибка генератора: ${data.error}`);
+      }
+    } catch (error) {
+      // Исправление ошибки no-unused-vars: теперь выводим детальную ошибку в консоль разработчика
+      console.error("Детали ошибки при связи с бэкендом:", error);
+      setGenStatus("❌ Не удалось связаться с сервером бэкенда. Убедись, что в терминале запущен скрипт 'node bankGenerator.js'");
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6 max-w-5xl mx-auto font-sans text-slate-900">
       <div className="flex justify-between items-center border-b pb-4 border-slate-100">
@@ -116,7 +181,7 @@ export const CeoPanel = ({ onClose }) => {
         </button>
       </div>
 
-      <div className="flex gap-2 border-b border-slate-100 pb-px overflow-x-auto">
+      <div className="flex gap-4 border-b border-slate-100 pb-px overflow-x-auto">
         <button
           onClick={() => setActiveTab("users")}
           className={`pb-3 text-xs font-bold transition-all px-1 relative ${
@@ -124,6 +189,14 @@ export const CeoPanel = ({ onClose }) => {
           }`}
         >
           Пользователи и Тарифы
+        </button>
+        <button
+          onClick={() => setActiveTab("ai_generator")}
+          className={`pb-3 text-xs font-bold transition-all px-1 relative ${
+            activeTab === "ai_generator" ? "text-indigo-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-indigo-600" : "text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          🧠 ИИ-Генератор задач
         </button>
         <button
           onClick={() => setActiveTab("moderation")}
@@ -138,6 +211,73 @@ export const CeoPanel = ({ onClose }) => {
       {activeTab === "users" && (
         <div className="py-4 text-center text-xs text-slate-400 italic bg-slate-50 rounded-xl p-8 border">
           Раздел управления аккаунтами пользователей активен в стандартном режиме синхронизации.
+        </div>
+      )}
+
+      {activeTab === "ai_generator" && (
+        <div className="space-y-6 bg-slate-50/50 border border-slate-100 rounded-2xl p-6">
+          <div>
+            <h3 className="font-black text-sm text-slate-800">Массовое наполнение банка контента ИИ</h3>
+            <p className="text-xs text-slate-400 mt-1">Выберите предмет и тему из кодификатора ЕНТ. Gemini сгенерирует уникальные вопросы повышенной сложности.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Предмет:</label>
+              <select 
+                value={genSubject} 
+                onChange={(e) => handleSubjectChange(e.target.value)} 
+                className="w-full bg-white border border-slate-200 text-xs font-medium rounded-xl p-3 shadow-sm focus:outline-none focus:border-indigo-500"
+              >
+                {subjectsList.map(subj => (
+                  <option key={subj} value={subj}>{subj}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Тема по кодификатору:</label>
+              <select 
+                value={genTopic} 
+                onChange={(e) => setGenTopic(e.target.value)} 
+                className="w-full bg-white border border-slate-200 text-xs font-medium rounded-xl p-3 shadow-sm focus:outline-none focus:border-indigo-500"
+              >
+                {genSubject && curriculumProgram[genSubject]?.map(topicObj => (
+                  <option key={topicObj.name} value={topicObj.name}>{topicObj.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 tracking-wider uppercase mb-2">Количество вопросов (1-10):</label>
+              <input 
+                type="number" 
+                min="1" 
+                max="10"
+                value={genCount} 
+                onChange={(e) => setGenCount(e.target.value)}
+                className="w-full bg-white border border-slate-200 text-xs font-bold rounded-xl p-3 shadow-sm focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 pt-2">
+            <button
+              onClick={handleAiGenerate}
+              disabled={genLoading}
+              className={`font-bold px-6 py-3 rounded-xl text-xs shadow-sm transition ${
+                genLoading ? "bg-slate-300 text-slate-500 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+              }`}
+            >
+              {genLoading ? "Генерация задач..." : "Запустить генерацию через Gemini"}
+            </button>
+
+            {genStatus && (
+              <span className={`text-[11px] font-bold ${genStatus.startsWith("❌") ? "text-rose-600" : "text-emerald-600 animate-pulse"}`}>
+                {genStatus}
+              </span>
+            )}
+          </div>
         </div>
       )}
 

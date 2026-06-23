@@ -13,7 +13,7 @@ const firebaseConfig = {
 };
 
 // Инициализация приложения
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 
 // Экспортируем аутентификацию и ТОТ САМЫЙ GOOGLE PROVIDER
 export const auth = getAuth(app);
