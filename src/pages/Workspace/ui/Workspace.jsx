@@ -592,128 +592,148 @@ export const Workspace = () => {
     }
   };
 
-  const handleCheckTask = async () => {
-    if (selectedTaskAns === null || !generatedTask) return;
-    const isCorrect = selectedTaskAns === generatedTask.correctIndex;
-    setIsTaskCorrect(isCorrect);
-    setTaskChecked(true);
+  // Находим функцию handleCheckTask и обновляем логику сохранения:
+const handleCheckTask = async () => {
+  if (selectedTaskAns === null || !generatedTask) return;
+  const isCorrect = selectedTaskAns === generatedTask.correctIndex;
+  setIsTaskCorrect(isCorrect);
+  setTaskChecked(true);
 
-    if (studentStats && user) {
-      const userDocRef = doc(db, "users", user.uid);
-      const todayStr = new Date().toLocaleDateString("en-CA");
-      const currentTasksSolved = studentStats.lastActiveDate === todayStr ? (studentStats.dailyTasksSolved || 0) : 0;
+  if (studentStats && user) {
+    const userDocRef = doc(db, "users", user.uid);
+    const todayStr = new Date().toLocaleDateString("en-CA");
+    const currentTasksSolved = studentStats.lastActiveDate === todayStr ? (studentStats.dailyTasksSolved || 0) : 0;
 
-      // =========================================================
-      // РАСЧЕТ ЖИВОГО ПОТЕМНОГО МАСТЕРСТВА ИЗ ТРЕНАЖЕРА
-      // =========================================================
-      const currentTopicMastery = studentStats?.topicMastery || {};
-      const sessionResult = {
+    // Формируем slug темы для SRS карточки
+    const topicSlug = activeTasksTopic
+      .toLowerCase()
+      .replace(/[^a-zа-я0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    
+    // Ссылка на SRS-документ темы
+    const srsDocRef = doc(db, "users", user.uid, "srsState", `${activeTasksSubject}_${topicSlug}`);
+
+    // Читаем текущее состояние SRS для этой темы перед обновлением
+    let currentSrsData = null;
+    try {
+      const { getDoc } = await import("firebase/firestore");
+      const srsSnap = await getDoc(srsDocRef);
+      if (srsSnap.exists()) currentSrsData = srsSnap.data();
+    } catch  {
+      console.warn("SRS Document not found, initializing new state");
+    }
+
+    // Рассчитываем новое состояние по Лейтнеру
+    const { calculateLeitnerState } = await import("../../../shared/data/srsService");
+    const nextSrsState = calculateLeitnerState(currentSrsData, isCorrect);
+
+    // Сохраняем состояние Лейтнера
+    try {
+      const { setDoc } = await import("firebase/firestore");
+      await setDoc(srsDocRef, {
+        ...nextSrsState,
         subject: activeTasksSubject,
         topic: activeTasksTopic,
-        score: isCorrect ? 1.0 : 0.0,
-        totalQuestions: 1
-      };
+      }, { merge: true });
+    } catch (err) {
+      console.error("Ошибка сохранения SRS состояния темы:", err);
+    }
 
-      const { updateTopicMasteryAfterSession, syncPlanStatusesWithMastery, calculateWeightedProgress } = await import("../../../shared/data/planGenerator");
-      const { updatedMastery: liveMastery } = updateTopicMasteryAfterSession(currentTopicMastery, sessionResult);
-      
-      const currentStudyPlan = studentStats?.examPrep?.studyPlan || [];
-      const updatedStudyPlan = syncPlanStatusesWithMastery(currentStudyPlan, liveMastery);
-      
-      const nextPlanPercent = calculateWeightedProgress(updatedStudyPlan);
+    // Оставшаяся часть твоей живой логики (расчет topicMastery и прогресса плана)...
+    const currentTopicMastery = studentStats?.topicMastery || {};
+    const sessionResult = {
+      subject: activeTasksSubject,
+      topic: activeTasksTopic,
+      score: isCorrect ? 1.0 : 0.0,
+      totalQuestions: 1
+    };
 
-      const updateData = {
-        dailyTasksSolved: currentTasksSolved + 1,
-        lastActiveDate: todayStr,
-        "topicMastery": liveMastery,
-        "studentStats.topicMastery": liveMastery,
-        "examPrep.studyPlan": updatedStudyPlan,
-        "examPrep.completedPercent": nextPlanPercent,
-        "examPrep.updatedAt": new Date().toISOString()
-      };
+    const { updateTopicMasteryAfterSession, syncPlanStatusesWithMastery, calculateWeightedProgress } = await import("../../../shared/data/planGenerator");
+    const { updatedMastery: liveMastery } = updateTopicMasteryAfterSession(currentTopicMastery, sessionResult);
+    
+    const currentStudyPlan = studentStats?.examPrep?.studyPlan || [];
+    const updatedStudyPlan = syncPlanStatusesWithMastery(currentStudyPlan, liveMastery);
+    
+    const nextPlanPercent = calculateWeightedProgress(updatedStudyPlan);
 
-      if (isCorrect) {
-        const nextProgress = Math.min(
-          (studentStats.overallProgress || 0) + 2,
-          100,
-        );
-        const days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-        const currentDay = days[new Date().getDay()];
-        const updatedProductivity = (studentStats.weeklyProductivity || []).map(
-          (d) =>
-            d.day === currentDay
-              ? { ...d, solved: Math.min((d.solved || 0) + 10, 100) }
-              : d,
-        );
-        const updatedMastery = (studentStats.subjectsMastery || []).map(
-          (sub) => {
-            if (sub.name !== activeTasksSubject) return sub;
-            const nextProg = Math.min((sub.progress || 0) + 5, 100);
-            return {
-              ...sub,
-              progress: nextProg,
-              level:
-                nextProg >= 80
-                  ? "Продвинутый"
-                  : nextProg >= 40
-                    ? "Средний"
-                    : "Базовый",
-            };
+    const updateData = {
+      dailyTasksSolved: currentTasksSolved + 1,
+      lastActiveDate: todayStr,
+      "topicMastery": liveMastery,
+      "studentStats.topicMastery": liveMastery,
+      "examPrep.studyPlan": updatedStudyPlan,
+      "examPrep.completedPercent": nextPlanPercent,
+      "examPrep.updatedAt": new Date().toISOString()
+    };
+
+    if (isCorrect) {
+      const nextProgress = Math.min((studentStats.overallProgress || 0) + 2, 100);
+      const days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+      const currentDay = days[new Date().getDay()];
+      const updatedProductivity = (studentStats.weeklyProductivity || []).map(
+        (d) => d.day === currentDay ? { ...d, solved: Math.min((d.solved || 0) + 10, 100) } : d
+      );
+      const updatedMastery = (studentStats.subjectsMastery || []).map((sub) => {
+        if (sub.name !== activeTasksSubject) return sub;
+        const nextProg = Math.min((sub.progress || 0) + 5, 100);
+        return {
+          ...sub,
+          progress: nextProg,
+          level: nextProg >= 80 ? "Продвинутый" : nextProg >= 40 ? "Средний" : "Базовый",
+        };
+      });
+      const updatedGoals = (studentStats.weeklyGoals || []).map((goal) => {
+        if (goal.id === 1 && (activeTasksSubject.toLowerCase().includes("матем") || activeTasksSubject.toLowerCase().includes("алгебр"))) {
+          return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
+        }
+        if (goal.id === 3) {
+          return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
+        }
+        return goal;
+      });
+
+      Object.assign(updateData, {
+        overallProgress: nextProgress,
+        weeklyProductivity: updatedProductivity,
+        subjectsMastery: updatedMastery,
+        weeklyGoals: updatedGoals,
+        recentActivity: [
+          {
+            id: crypto.randomUUID(),
+            type: "Практика",
+            name: `Решена задача ИИ по теме: ${activeTasksTopic} (Коробка Лейтнера: ${nextSrsState.box}/5)`,
+            score: "+150 опыта",
+            time: "Только что",
           },
-        );
-        const updatedGoals = (studentStats.weeklyGoals || []).map((goal) => {
-          if (goal.id === 1 && (activeTasksSubject.toLowerCase().includes("матем") || activeTasksSubject.toLowerCase().includes("алгебр"))) {
-            return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
-          }
-          if (goal.id === 3) {
-            return { ...goal, current: Math.min((goal.current || 0) + 1, goal.max) };
-          }
-          return goal;
-        });
-
+          ...(studentStats.recentActivity || []).slice(0, 4),
+        ],
+      });
+    } else {
+      const currentAttention = studentStats.attentionNeeded || [];
+      if (!currentAttention.some((item) => item.topic === activeTasksTopic)) {
         Object.assign(updateData, {
-          overallProgress: nextProgress,
-          weeklyProductivity: updatedProductivity,
-          subjectsMastery: updatedMastery,
-          weeklyGoals: updatedGoals,
-          recentActivity: [
+          attentionNeeded: [
             {
-              id: crypto.randomUUID(),
+              id: `need-${crypto.randomUUID().slice(0, 6)}`,
+              subject: activeTasksSubject,
+              topic: activeTasksTopic,
               type: "Практика",
-              name: `Решена задача ИИ по теме: ${activeTasksTopic}`,
-              score: "+150 опыта",
-              time: "Только что",
+              urgency: tasksDifficulty === "Сложный" ? "Высокий" : "Средний",
             },
-            ...(studentStats.recentActivity || []).slice(0, 4),
+            ...currentAttention.slice(0, 3),
           ],
         });
-      } else {
-        const currentAttention = studentStats.attentionNeeded || [];
-        if (!currentAttention.some((item) => item.topic === activeTasksTopic)) {
-          Object.assign(updateData, {
-            attentionNeeded: [
-              {
-                id: `need-${crypto.randomUUID().slice(0, 6)}`,
-                subject: activeTasksSubject,
-                topic: activeTasksTopic,
-                type: "Практика",
-                urgency:
-                  tasksDifficulty === "Сложный" ? "Высокий" : "Средний",
-              },
-              ...currentAttention.slice(0, 3),
-            ],
-          });
-        }
-      }
-
-      try {
-        await updateDoc(userDocRef, updateData);
-        console.log("[Trainer Engine] Результат одиночной задачи успешно зафиксирован в теме кодификатора.");
-      } catch (err) {
-        console.error("Ошибка обновления данных в Firestore:", err);
       }
     }
-  };
+
+    try {
+      await updateDoc(userDocRef, updateData);
+      console.log("[Trainer Engine] Результат одиночной задачи и состояние Лейтнера успешно зафиксированы.");
+    } catch (err) {
+      console.error("Ошибка обновления данных в Firestore:", err);
+    }
+  }
+};
 
   useEffect(() => {
     if (!user) return;

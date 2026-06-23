@@ -25,3 +25,7 @@ dist-ssr
 
 # Environment variables
 .env
+
+# AI Generator & Firebase Admin SDK Keys
+bankGenerator.js
+firebase-key.json
