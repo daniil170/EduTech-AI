@@ -349,9 +349,19 @@ export const AiLearningCore = ({
           ? userData?.dailyTasksSolved || 0
           : 0;
 
+      const currentXp = userData?.xp || 0;
+      const nextXp = isCompleted ? (currentXp + xpGained) : currentXp;
+
+      const currentActivityDates = userData?.activityDates || [];
+      const updatedActivityDates = currentActivityDates.includes(todayStr)
+        ? currentActivityDates
+        : [...currentActivityDates, todayStr];
+
       await updateDoc(userDocRef, {
         dailyTasksSolved: currentTasksSolved + 3,
         lastActiveDate: todayStr,
+        xp: nextXp,
+        activityDates: updatedActivityDates,
         overallProgress: Math.min((userData?.overallProgress || 0) + 2, 100),
         subjectsMastery: updatedSubjectsMastery,
         "studentStats.topicMastery": updatedMastery,
@@ -477,9 +487,19 @@ export const AiLearningCore = ({
         ? userData?.dailyTasksSolved || 0
         : 0;
 
+    const currentXp = userData?.xp || 0;
+    const nextXp = currentXp + 300;
+
+    const currentActivityDates = userData?.activityDates || [];
+    const updatedActivityDates = currentActivityDates.includes(todayStr)
+      ? currentActivityDates
+      : [...currentActivityDates, todayStr];
+
     const baseUpdate = {
       dailyTasksSolved: currentTasksSolved + addedCount,
       lastActiveDate: todayStr,
+      xp: nextXp,
+      activityDates: updatedActivityDates,
     };
 
     if (!geminiKey) {

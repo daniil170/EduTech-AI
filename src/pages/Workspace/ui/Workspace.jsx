@@ -27,6 +27,8 @@ import { CeoPanel } from "../../../widgets/CeoPanel";
 import { SubscriptionModal } from "../../../features/SubscriptionModal";
 import { CongratsModal } from "../../../features/CongratsModal";
 import { CertificateModal } from "../../../features/CertificateModal";
+import { MathRenderer } from "../../../shared/ui/MathRenderer";
+import { generateLocalSchedule, generateLessonTimes } from "../../../shared/data/schedule";
 import {
   generateAiPromptForSimilarTask,
   entDatabase,
@@ -162,8 +164,14 @@ export const Workspace = () => {
   const user = auth.currentUser;
   const userName = user?.displayName || user?.email?.split("@")[0] || "Ученик";
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem("active_tab") || "dashboard";
+  });
   const [activeExam, setActiveExam] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem("active_tab", activeTab);
+  }, [activeTab]);
 
   const [onboardingStep, setOnboardingStep] = useState("select_combo");
 
@@ -341,6 +349,8 @@ export const Workspace = () => {
 
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [selectedCombo, setSelectedCombo] = useState("");
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState("14:00 - 20:00");
+  const [isStudySlotModalOpen, setIsStudySlotModalOpen] = useState(false);
   const [onboardingSaving, setOnboardingSaving] = useState(false);
 
   const [localPassedDiagnostic, setLocalPassedDiagnostic] = useState(false);
@@ -604,6 +614,11 @@ const handleCheckTask = async () => {
     const todayStr = new Date().toLocaleDateString("en-CA");
     const currentTasksSolved = studentStats.lastActiveDate === todayStr ? (studentStats.dailyTasksSolved || 0) : 0;
 
+    const currentActivityDates = studentStats.activityDates || [];
+    const updatedActivityDates = currentActivityDates.includes(todayStr)
+      ? currentActivityDates
+      : [...currentActivityDates, todayStr];
+
     // Формируем slug темы для SRS карточки
     const topicSlug = activeTasksTopic
       .toLowerCase()
@@ -659,6 +674,7 @@ const handleCheckTask = async () => {
     const updateData = {
       dailyTasksSolved: currentTasksSolved + 1,
       lastActiveDate: todayStr,
+      activityDates: updatedActivityDates,
       "topicMastery": liveMastery,
       "studentStats.topicMastery": liveMastery,
       "examPrep.studyPlan": updatedStudyPlan,
@@ -668,6 +684,7 @@ const handleCheckTask = async () => {
 
     if (isCorrect) {
       const nextProgress = Math.min((studentStats.overallProgress || 0) + 2, 100);
+      const nextXp = (studentStats.xp || 0) + 150;
       const days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
       const currentDay = days[new Date().getDay()];
       const updatedProductivity = (studentStats.weeklyProductivity || []).map(
@@ -694,6 +711,7 @@ const handleCheckTask = async () => {
 
       Object.assign(updateData, {
         overallProgress: nextProgress,
+        xp: nextXp,
         weeklyProductivity: updatedProductivity,
         subjectsMastery: updatedMastery,
         weeklyGoals: updatedGoals,
@@ -776,6 +794,69 @@ const handleCheckTask = async () => {
     };
   }, [user]);
 
+  // Background checks: weekly plan recalculation & lag rescheduling
+  useEffect(() => {
+    if (!user || !studentStats || !studentStats.hasPassedDiagnostic || !studentStats.examPrep) return;
+
+    const runChecks = async () => {
+      const today = new Date();
+      const todayStr = today.toISOString().split("T")[0];
+      let needsUpdate = false;
+      let updateData = {};
+
+      // 1. Weekly plan recalculation check
+      const lastUpdate = studentStats.examPrep.updatedAt;
+      let weeksPassed = false;
+      if (lastUpdate) {
+        const lastUpdateTime = new Date(lastUpdate).getTime();
+        const oneWeek = 7 * 24 * 60 * 60 * 1000;
+        if (Date.now() - lastUpdateTime > oneWeek) {
+          weeksPassed = true;
+        }
+      }
+
+      // 2. Lag detection check
+      const studyPlan = studentStats.examPrep.studyPlan || [];
+      const hasLag = studyPlan.some(step => {
+        return step.status === "pending" && step.deadlineDate && step.deadlineDate < todayStr;
+      });
+
+      if (weeksPassed || hasLag) {
+        try {
+          const recalculated = generatePlanLocal(studentStats, studentStats.examPrep);
+          const nextPercent = calculateWeightedProgress(recalculated.studyPlan);
+          
+          updateData = {
+            examPrep: {
+              ...recalculated,
+              completedPercent: nextPercent,
+              updatedAt: new Date().toISOString()
+            }
+          };
+          needsUpdate = true;
+
+          // If it was a lag update, notify user
+          if (hasLag) {
+            alert("🔄 Мы заметили, что вы отклонились от графика. Ваш план подготовки к ЕНТ был автоматически адаптирован и перераспределен на оставшиеся дни!");
+          }
+        } catch (err) {
+          console.error("Error recalculating plan on background checks:", err);
+        }
+      }
+
+      if (needsUpdate) {
+        try {
+          await updateDoc(doc(db, "users", user.uid), updateData);
+          console.log("[Background Adjuster] Plan successfully recalculated and updated.");
+        } catch (err) {
+          console.error("Error saving recalculated plan in background:", err);
+        }
+      }
+    };
+
+    runChecks();
+  }, [user, studentStats]);
+
   const handleFinishDiagnostic = async (scorePercent, combo, topicBreakdown) => {
     if (!user) return;
     setOnboardingStep("generating_plan");
@@ -805,6 +886,12 @@ const handleCheckTask = async () => {
     try {
       const userRef = doc(db, "users", user.uid);
       const now = Date.now();
+      const todayStr = new Date().toLocaleDateString("en-CA");
+      const currentActivityDates = studentStats?.activityDates || [];
+      const updatedActivityDates = currentActivityDates.includes(todayStr)
+        ? currentActivityDates
+        : [...currentActivityDates, todayStr];
+      const nextXp = (studentStats?.xp || 0) + 500;
 
       // ==========================================
       // ФОРМИРОВАНИЕ ИНДИВИДУАЛЬНОЙ TOPIC MASTERY MAP
@@ -890,6 +977,9 @@ const handleCheckTask = async () => {
       });
       flatWeakestTopics.sort((a, b) => a.level - b.level);
 
+      const timesForSlot = generateLessonTimes(selectedTimeSlot || "14:00 - 20:00", 1);
+      const timeStr = timesForSlot[0] || "16:00";
+
       for (let i = 0; i < 4; i++) {
         const targetDay = new Date(today);
         targetDay.setDate(today.getDate() + (i + 1));
@@ -902,7 +992,7 @@ const handleCheckTask = async () => {
           title: `AI Урок: ${recommendation.top}`,
           subject: recommendation.subject,
           topic: recommendation.top,
-          time: "16:00",
+          time: timeStr,
           date: dateStr,
           type: "lesson",
           completed: false,
@@ -923,8 +1013,11 @@ const handleCheckTask = async () => {
         subjectsMastery: updatedSubjectsMastery,
         weeklyGoals: initialGoals,
         overallProgress: Math.round(scorePercent / 3),
+        xp: nextXp,
+        activityDates: updatedActivityDates,
         "studentStats.topicMastery": targetTopicMastery,
         "topicMastery": targetTopicMastery,
+        studyTimeSlot: selectedTimeSlot || "14:00 - 20:00",
         examPrep: {
           studyPlan: generatedPlanResult.studyPlan,
           recommendations: generatedPlanResult.recommendations,
@@ -950,6 +1043,11 @@ const handleCheckTask = async () => {
       setTasksSubject(profileSubs[0]);
       setTasksTopic(getTopicsForSubject(profileSubs[0])[0]);
       setLocalPassedDiagnostic(true);
+      
+      localStorage.removeItem("diagnostic_paused_subject");
+      localStorage.removeItem("diagnostic_paused_answers");
+      localStorage.removeItem("diagnostic_paused_current");
+      localStorage.removeItem("diagnostic_paused_is_orientation");
 
     } catch (err) {
       console.error("Ошибка автопланирования при диагностике:", err);
@@ -998,108 +1096,35 @@ const handleCheckTask = async () => {
         messageSuffix = "на ближайшие 2 дня (мягкий режим)";
       }
 
-      // 1. Попытка сгенерировать детальное расписание через реальный ИИ Gemini
-      if (geminiKey) {
-        try {
-          const daysLeftText = studentStats.daysToUnt ? ` (осталось дней до ЕНТ: ${studentStats.daysToUnt})` : "";
-          const prompt = `Спланируй детальное расписание ЕНТ-подготовки для ученика ${studentStats.grade}${daysLeftText}.
-Ученик имеет следующие предметы и текущую успеваемость:
-${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n")}
+      // Fetch SRS state from Firestore
+      const { getDocs } = await import("firebase/firestore");
+      const srsSnap = await getDocs(collection(db, "users", user.uid, "srsState"));
+      const srsList = [];
+      srsSnap.forEach(docSnap => {
+        srsList.push(docSnap.data());
+      });
 
-Твоя задача — сгенерировать ровно ${scheduledCount} учебных занятий на ближайшие дни (начиная с сегодня).
-Для каждого занятия выбери конкретный предмет из списка слабых предметов, выбери конкретную тему, подходящую для ЕНТ, определи тип активности (например: 'Разбор теории', 'Практика задач', 'Тестирование', 'Работа над ошибками') и укажи время (в диапазоне с 14:00 до 20:00, например: '15:30').
-Сделай заголовки занятий («title») мотивирующими и предметно-ориентированными (например, 'Разбор формул: Синусы и Косинусы', 'Практика ЕНТ: Образование Казахского ханства' вместо общего 'AI Отработка').
-
-Ответ верни строго в формате JSON без markdown-разметки (без \`\`\`json):
-{
-  "schedule": [
-    {
-      "dateOffset": 0, 
-      "subject": "Название предмета",
-      "topic": "Название темы",
-      "title": "Тип активности: Название темы",
-      "time": "ЧЧ:ММ"
-    }
-  ]
-}`;
-
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { responseMimeType: "application/json" },
-              }),
-            }
-          );
-
-          if (!response.ok) throw new Error("API call failed");
-          const resData = await response.json();
-          let text = resData.candidates[0].content.parts[0].text;
-          text = text.replace(/^```json\s*/i, "").replace(/\s*```$/, "").trim();
-          const parsed = JSON.parse(text);
-
-          if (parsed.schedule && parsed.schedule.length > 0) {
-            const batch = writeBatch(db);
-            parsed.schedule.forEach(item => {
-              const targetDay = new Date(today);
-              targetDay.setDate(today.getDate() + (item.dateOffset || 0));
-              const dateStr = targetDay.toISOString().split("T")[0];
-
-              const docRef = doc(collection(db, "calendar"));
-              batch.set(docRef, {
-                title: item.title,
-                subject: item.subject,
-                topic: item.topic,
-                time: item.time || "15:00",
-                date: dateStr,
-                type: "lesson",
-                completed: false,
-                studentId: user.uid,
-                createdAt: new Date().toISOString()
-              });
-            });
-
-            await batch.commit();
-            alert(
-              `🤖 AI успешно спланировал детальное расписание ${messageSuffix} по вашим слабым темам! Проверьте календарь.`
-            );
-            return;
-          }
-        } catch (err) {
-          console.warn("AI Auto-schedule error, falling back to local generation:", err);
-        }
-      }
-
-      // 2. Локальный генератор (работает бесплатно / оффлайн) с детализированными заголовками
-      const actions = ["Практика ЕНТ", "Теория и формулы", "Тестирование", "Работа над ошибками"];
+      // Clear any future uncompleted events to avoid duplication
+      const todayStr = today.toISOString().split("T")[0];
       const batch = writeBatch(db);
+      
+      calendarEvents.forEach(evt => {
+        if (!evt.completed && evt.date >= todayStr && evt.id) {
+          batch.delete(doc(db, "calendar", evt.id));
+        }
+      });
 
-      for (let i = 0; i < scheduledCount; i++) {
-        const targetDay = new Date(today);
-        targetDay.setDate(today.getDate() + i);
-        const dateStr = targetDay.toISOString().split("T")[0];
+      // Generate local schedule using the algorithm
+      const timeSlotStr = studentStats.studyTimeSlot || "14:00 - 20:00";
+      const newEvents = generateLocalSchedule(studentStats, calendarEvents, timeSlotStr, srsList, scheduledCount);
 
-        const sub = weakSubjects[i % weakSubjects.length];
-        const topics = getTopicsForSubject(sub.name);
-        const topic = topics[Math.floor(Math.random() * topics.length)];
-        const action = actions[i % actions.length];
-
+      newEvents.forEach(evt => {
         const docRef = doc(collection(db, "calendar"));
         batch.set(docRef, {
-          title: `${action}: ${topic}`,
-          subject: sub.name,
-          topic: topic,
-          time: "15:00",
-          date: dateStr,
-          type: "lesson",
-          completed: false,
-          studentId: user.uid,
-          createdAt: new Date().toISOString(),
+          ...evt,
+          studentId: user.uid
         });
-      }
+      });
 
       await batch.commit();
 
@@ -1208,16 +1233,16 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
         )
       : 0;
 
-  // Last 28 days activity grid
+  // Last 28 days activity grid based on real activity dates
   const activityGrid = (() => {
     const grid = [];
     const today = new Date();
+    const activeDates = studentStats?.activityDates || [];
     for (let i = 27; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      const dateStr = d.toISOString().split("T")[0];
-      const streakDays = studentStats?.streakDays || 0;
-      const isActive = i < streakDays;
+      const dateStr = d.toLocaleDateString("en-CA");
+      const isActive = activeDates.includes(dateStr);
       grid.push({ date: dateStr, active: isActive });
     }
     return grid;
@@ -1354,6 +1379,26 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
               ))}
             </div>
 
+            <div className="w-full max-w-md mx-auto bg-slate-800/40 border border-slate-700/60 p-5 rounded-2xl space-y-3">
+              <h4 className="font-bold text-xs text-white uppercase tracking-wider text-left flex items-center gap-2">
+                <span>⏱️</span> Когда тебе обычно удобно заниматься?
+              </h4>
+              <p className="text-[10px] text-slate-400 text-left">
+                Индивидуальное расписание и уроки в календаре подстроятся под выбранный слот.
+              </p>
+              <select
+                value={selectedTimeSlot}
+                onChange={(e) => setSelectedTimeSlot(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none transition cursor-pointer"
+              >
+                <option value="14:00 - 20:00">14:00 - 20:00 (По умолчанию)</option>
+                <option value="09:00 - 13:00">09:00 - 13:00 (Утреннее время)</option>
+                <option value="14:00 - 18:00">14:00 - 18:00 (Дневное время)</option>
+                <option value="18:00 - 22:00">18:00 - 22:00 (Вечернее время)</option>
+                <option value="16:00 - 22:00">16:00 - 22:00 (Гибкий вечер)</option>
+              </select>
+            </div>
+
             <button
               onClick={() => setOnboardingStep("diagnostic_test")}
               disabled={!selectedCombo || onboardingSaving}
@@ -1374,17 +1419,31 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
     }
 
     if (onboardingStep === "diagnostic_test") {
+      const pausedSubject = localStorage.getItem("diagnostic_paused_subject");
+      const pausedAnswersRaw = localStorage.getItem("diagnostic_paused_answers");
+      const pausedCurrentRaw = localStorage.getItem("diagnostic_paused_current");
+      const pausedIsOrientation = localStorage.getItem("diagnostic_paused_is_orientation") === "true";
+      
+      const hasPaused = pausedSubject && pausedAnswersRaw && pausedCurrentRaw;
+      const initialAnswers = hasPaused ? JSON.parse(pausedAnswersRaw) : null;
+      const initialCurrentQuestion = hasPaused ? parseInt(pausedCurrentRaw, 10) : 0;
+      
+      const isOrientation = studentStats?.grade === "9 класс" || studentStats?.grade === "10 класс";
+
       return (
         <MockExam
-          subject={selectedCombo}
-          examTitle="Стартовый диагностический тест (Анализ уровня знаний)"
+          subject={hasPaused ? pausedSubject : selectedCombo}
+          examTitle={isOrientation ? "Ориентационный тест (9-10 класс)" : "Стартовый диагностический тест (Анализ уровня знаний)"}
           userName={userName}
           questionsCount={5}
           timeLimit={15}
           geminiKey={geminiKey}
           onClose={() => setOnboardingStep("select_combo")}
-          onFinish={async (scorePercent) => {
-            await handleFinishDiagnostic(scorePercent, selectedCombo);
+          isOrientationTrack={hasPaused ? pausedIsOrientation : isOrientation}
+          initialAnswers={initialAnswers}
+          initialCurrentQuestion={initialCurrentQuestion}
+          onFinish={async (scorePercent, subject, topicBreakdown) => {
+            await handleFinishDiagnostic(scorePercent, hasPaused ? pausedSubject : selectedCombo, topicBreakdown);
           }}
         />
       );
@@ -1632,6 +1691,24 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                 : "Раздел"}
           </span>
           <div className="flex items-center gap-4">
+            {/* Gamification Badge */}
+            {(() => {
+              const xpVal = studentStats?.xp || 0;
+              const currentLvl = Math.floor(xpVal / 1000) + 1;
+              const xpInLvl = xpVal % 1000;
+              const lvlProgressPercent = (xpInLvl / 1000) * 100;
+              return (
+                <div className="hidden md:flex items-center gap-3 bg-slate-50 border border-slate-200/50 px-3 py-1 rounded-xl">
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] font-black text-indigo-600 leading-none">УРОВЕНЬ {currentLvl}</span>
+                    <span className="text-[9px] font-bold text-slate-400 mt-0.5">{xpInLvl} / 1000 XP</span>
+                  </div>
+                  <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden shrink-0">
+                    <div className="bg-indigo-600 h-full rounded-full transition-all duration-300" style={{ width: `${lvlProgressPercent}%` }}></div>
+                  </div>
+                </div>
+              );
+            })()}
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-700 transition"
@@ -1855,6 +1932,22 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                       <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Направление ЕНТ</p>
                       <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.profileCombination || "—"}</p>
                     </div>
+                  </div>
+
+                  <div 
+                    onClick={() => {
+                      setSelectedTimeSlot(studentStats?.studyTimeSlot || "14:00 - 20:00");
+                      setIsStudySlotModalOpen(true);
+                    }}
+                    className="bg-white border border-indigo-500/15 rounded-2xl p-3 flex items-center gap-2.5 shadow-sm cursor-pointer hover:border-indigo-500 hover:shadow-md transition-all relative group"
+                    title="Нажмите, чтобы настроить время занятий"
+                  >
+                    <div className="text-lg">⏱️</div>
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Время занятий</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">{studentStats?.studyTimeSlot || "14:00 - 20:00"}</p>
+                    </div>
+                    <span className="text-[10px] text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity ml-1 font-bold">✏️</span>
                   </div>
 
                   {is11Grade ? (
@@ -2206,6 +2299,37 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                   </div>
                 </div>
               )}
+
+              {/* Activity Timeline (recentActivity) */}
+              <div className="bg-white border border-slate-200/60 p-6 rounded-3xl shadow-sm space-y-4">
+                <h3 className="font-black text-slate-800 text-sm uppercase tracking-tight flex items-center gap-2">
+                  <span>⏱️</span> История последних активностей
+                </h3>
+                <div className="space-y-3 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                  {!studentStats?.recentActivity || studentStats.recentActivity.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-4">Активностей пока не зафиксировано. Начните заниматься!</p>
+                  ) : (
+                    studentStats.recentActivity.map((activity, idx) => (
+                      <div key={activity.id || idx} className="flex justify-between items-center p-3 border border-slate-100 rounded-2xl bg-slate-50/50 hover:bg-indigo-50/20 transition gap-4">
+                        <div className="min-w-0">
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${
+                            activity.type === "ИИ-Урок" ? "bg-indigo-50 text-indigo-700" :
+                            activity.type === "Практика" ? "bg-emerald-50 text-emerald-700" :
+                            activity.type === "ИИ-Пробник" ? "bg-pink-50 text-pink-700" : "bg-slate-100 text-slate-600"
+                          }`}>
+                            {activity.type}
+                          </span>
+                          <p className="text-xs font-bold text-slate-800 truncate mt-1.5">{activity.name}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg">{activity.score}</span>
+                          <span className="block text-[8px] text-slate-400 mt-1">{activity.time}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </>
           )}
 
@@ -2345,7 +2469,7 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
               {generatedTask && !tasksGenerating && (
                 <div className="bg-white border border-slate-200/60 rounded-3xl p-8 shadow-sm space-y-6">
                   <h3 className="text-lg font-black text-slate-900">
-                    {generatedTask.question}
+                    <MathRenderer text={generatedTask.question} inline={true} />
                   </h3>
                   {generatedTask.formula && (
                     <div className="p-4 bg-slate-900 text-center rounded-2xl overflow-x-auto">
@@ -2396,10 +2520,10 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
                           ? "🎉 Правильно! +150 опыта начислено."
                           : "❌ Ошибка. Изучите разбор решения ниже:"}
                       </div>
-                      <div className="p-5 bg-slate-50 rounded-2xl text-xs leading-relaxed whitespace-pre-line border border-slate-200">
+                      <div className="p-5 bg-slate-50 rounded-2xl text-xs leading-relaxed whitespace-pre-line border border-slate-200 text-slate-800">
                         <strong>Разбор решения:</strong>
                         <br />
-                        {generatedTask.explanation}
+                        <MathRenderer text={generatedTask.explanation} />
                       </div>
                       <button
                         onClick={() => {
@@ -2617,6 +2741,59 @@ ${weakSubjects.map(s => `- ${s.name}: ${s.progress}% освоения`).join("\n
           studentStats={studentStats}
           onClose={() => setIsCertificateOpen(false)}
         />
+      )}
+
+      {isStudySlotModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-200/60 text-slate-900 space-y-4">
+            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
+              <span className="text-xl">⏱️</span>
+              <div>
+                <h3 className="font-black text-sm uppercase tracking-wider">Время занятий</h3>
+                <p className="text-[10px] text-slate-400">Настройка свободного времени для расписания</p>
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Выберите удобный слот</label>
+              <select
+                value={selectedTimeSlot}
+                onChange={(e) => setSelectedTimeSlot(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition cursor-pointer"
+              >
+                <option value="14:00 - 20:00">14:00 - 20:00 (По умолчанию)</option>
+                <option value="09:00 - 13:00">09:00 - 13:00 (Утреннее время)</option>
+                <option value="14:00 - 18:00">14:00 - 18:00 (Дневное время)</option>
+                <option value="18:00 - 22:00">18:00 - 22:00 (Вечернее время)</option>
+                <option value="16:00 - 22:00">16:00 - 22:00 (Гибкий вечер)</option>
+              </select>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={async () => {
+                  try {
+                    await updateDoc(doc(db, "users", user.uid), { studyTimeSlot: selectedTimeSlot });
+                    setIsStudySlotModalOpen(false);
+                    alert("Время занятий успешно сохранено в вашем профиле!");
+                  } catch (err) {
+                    console.error("Error saving studyTimeSlot:", err);
+                    alert("Ошибка при сохранении времени занятий.");
+                  }
+                }}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+              >
+                Сохранить
+              </button>
+              <button
+                onClick={() => setIsStudySlotModalOpen(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-650 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

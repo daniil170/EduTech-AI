@@ -28,4 +28,5 @@ dist-ssr
 
 # AI Generator & Firebase Admin SDK Keys
 bankGenerator.js
+cronReplenish.js
 firebase-key.json

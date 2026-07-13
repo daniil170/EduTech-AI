@@ -1,79 +1,37 @@
-import { collection, getDocs, setDoc, doc, limit, query } from "firebase/firestore";
-import { curriculumProgram } from "./curriculum";
-import { entDatabase } from "./entBase";
+import { db } from '../../app/providers/Firebase/firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 
-const getMappedTopic = (themeName) => {
-  if (!themeName) return "Общая теория";
-  if (themeName.includes("Тригонометрические")) return "Тригонометрия";
-  if (themeName.includes("Производная")) return "Производные и их применение";
-  if (themeName.includes("Первообразная")) return "Первообразная и интеграл";
-  if (themeName.includes("Казахского ханства")) return "Казахское ханство";
-  if (themeName.includes("присоединения к России")) return "Казахстан в новое время";
-  if (themeName.includes("Логические и комбинаторные")) return "Логические задачи";
-  if (themeName.includes("проценты, смеси")) return "Проценты и пропорции";
-  return themeName;
-};
+export const seedQuestionBank = async (localQuestions) => {
+  const batchPromises = localQuestions.map(async (q) => {
+    const questionId = q.id || `q_${Math.random().toString(36).substring(2, 11)}`;
+    const storagePath = `https://firebasestorage.googleapis.com/v0/b/YOUR_BUCKET/o/${q.subject}%2F${q.topic}%2F${questionId}.json?alt=media`;
 
-export const seedCurriculumAndQuestions = async (db) => {
-  try {
-    const subjectsSnap = await getDocs(query(collection(db, "subjects"), limit(1)));
-    if (subjectsSnap.empty) {
-      for (const [subjectName, topics] of Object.entries(curriculumProgram)) {
-        const lessons = topics.map((topic, index) => {
-          const slug = topic.name
-            .toLowerCase()
-            .replace(/[^a-zа-я0-9]+/g, "_")
-            .replace(/^_+|_+$/g, "");
-          const subjectSlug = subjectName
-            .toLowerCase()
-            .replace(/[^a-zа-я0-9]+/g, "_")
-            .replace(/^_+|_+$/g, "");
-          const lessonId = `${subjectSlug}_${String(index + 1).padStart(2, "0")}_${slug}`;
+    const indexData = {
+      subject: q.subject,
+      topic: q.topic,
+      difficulty: q.difficulty || 'medium',
+      storagePath,
+      isApproved: true,
+      timesShown: 0,
+      createdAt: new Date()
+    };
 
-          return {
-            lessonId,
-            title: topic.name,
-            order: index + 1,
-            unlockThreshold: index === 0 ? 0 : 70,
-            topicTags: [topic.name],
-            requiredCorrectPercent: 70
-          };
-        });
+    const fullContent = {
+      question: q.question,
+      options: q.options,
+      correctIndex: q.correctIndex,
+      explanation: q.explanation,
+      difficulty: q.difficulty || 'medium',
+      topic: q.topic
+    };
 
-        const subjectDocRef = doc(db, "subjects", subjectName);
-        await setDoc(subjectDocRef, {
-          subjectId: subjectName,
-          lessons
-        });
-      }
-    }
+    await setDoc(doc(collection(db, 'questionBank'), questionId), indexData);
 
-    const questionsSnap = await getDocs(query(collection(db, "questionBank"), limit(1)));
-    if (questionsSnap.empty) {
-      for (const [subjectName, subData] of Object.entries(entDatabase)) {
-        const themes = subData.themes || [];
-        const questions = subData.questions || [];
+    return {
+      path: `${q.subject}/${q.topic}/${questionId}.json`,
+      content: fullContent
+    };
+  });
 
-        for (const q of questions) {
-          const themeObj = themes.find(t => t.id === q.themeId) || {};
-          const themeName = themeObj.name || "Общая теория";
-          const topic = getMappedTopic(themeName);
-          const qId = q.id || `q_${crypto.randomUUID().slice(0, 8)}`;
-
-          const qDocRef = doc(db, "questionBank", qId);
-          await setDoc(qDocRef, {
-            subject: subjectName,
-            topic: topic,
-            difficulty: themeObj.difficulty || "Средний",
-            storagePath: `gs://bank/${subjectName}/${topic}/${qId}.json`.toLowerCase(),
-            isApproved: true,
-            timesShown: 0,
-            createdAt: new Date().toISOString()
-          });
-        }
-      }
-    }
-  } catch (error) {
-    console.error(error);
-  }
+  return Promise.all(batchPromises);
 };

@@ -56,6 +56,9 @@ function App() {
               overallProgress: 0,
               targetScore: 140,
               streakDays: 0,
+              xp: 0,
+              level: 1,
+              activityDates: [],
 
               weeklyProductivity: [
                 { day: "Пн", solved: 0 },

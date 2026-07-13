@@ -44,7 +44,7 @@ export const generateLessonTimes = (timeSlot, lessonsCount) => {
   }
 };
 
-export const generateLocalSchedule = (stats, events, timeSlot, numDays = 7) => {
+export const generateLocalSchedule = (stats, events, timeSlot, srsList = [], numDays = 7) => {
   const subjectsMastery = stats.subjectsMastery || [];
   if (subjectsMastery.length === 0) return [];
 
@@ -80,18 +80,40 @@ export const generateLocalSchedule = (stats, events, timeSlot, numDays = 7) => {
     }
   });
 
+  // Map srsList for O(1) lookups
+  const srsMap = {};
+  srsList.forEach(item => {
+    if (item && item.subject && item.topic) {
+      const key = `${item.subject}::${item.topic}`;
+      srsMap[key] = item;
+    }
+  });
+
   const candidates = [];
 
   subjectsMastery.forEach(sub => {
     const subProgress = sub.progress || 0;
-    const completedCount = Math.min(Math.floor(subProgress / 20), 5);
     const detailedTopics = getDetailedTopicsForSubject(sub.name);
+    const subMastery = stats.topicMastery?.[sub.name] || {};
+
+    // Find the first topic with level < 0.75 (sequential mastery-progression)
+    let activeTopicIndex = -1;
+    for (let idx = 0; idx < detailedTopics.length; idx++) {
+      const topicObj = detailedTopics[idx];
+      const state = subMastery[topicObj.name] || {};
+      const level = state.level !== undefined ? state.level : 0.0;
+      if (level < 0.75) {
+        activeTopicIndex = idx;
+        break;
+      }
+    }
 
     detailedTopics.forEach((topicObj, idx) => {
-      const isCompleted = idx < completedCount;
-      const isActive = idx === completedCount && subProgress < 100;
+      const state = subMastery[topicObj.name] || {};
+      const level = state.level !== undefined ? state.level : 0.0;
 
-      if (isActive) {
+      // Active topic: first uncompleted topic in the subject
+      if (idx === activeTopicIndex) {
         const priorityScore = (100 - subProgress) * 0.5 + topicObj.weight * 10 + 50;
         candidates.push({
           subject: sub.name,
@@ -101,24 +123,44 @@ export const generateLocalSchedule = (stats, events, timeSlot, numDays = 7) => {
           priority: priorityScore,
           type: "active"
         });
-      } else if (isCompleted) {
-        const lastReviewDate = completedReviewDates[topicObj.name];
-        let daysSinceReview = 999;
-        if (lastReviewDate) {
-          const diffTime = Math.abs(new Date(todayStr) - new Date(lastReviewDate));
-          daysSinceReview = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        }
+      }
+      // Completed topics (all indices before the active topic index, or all if none is active)
+      else if (idx < activeTopicIndex || activeTopicIndex === -1) {
+        const srsState = srsMap[`${sub.name}::${topicObj.name}`];
+        if (srsState) {
+          const nextReview = srsState.nextReviewAt ? new Date(srsState.nextReviewAt) : null;
+          if (nextReview && nextReview <= new Date()) {
+            const daysOverdue = Math.max(0, Math.ceil((Date.now() - nextReview.getTime()) / (1000 * 60 * 60 * 24)));
+            const priorityScore = (1.0 - level) * 40 + topicObj.weight * 10 + 35 + daysOverdue * 2;
+            candidates.push({
+              subject: sub.name,
+              topic: topicObj.name,
+              motivatingTitle: `Повторение: ${topicObj.motivatingTitle}`,
+              weight: topicObj.weight,
+              priority: priorityScore,
+              type: "repetition_srs"
+            });
+          }
+        } else {
+          // Fallback if no SRS record found: check if has not been reviewed recently
+          const lastReviewDate = completedReviewDates[topicObj.name];
+          let daysSinceReview = 999;
+          if (lastReviewDate) {
+            const diffTime = Math.abs(new Date(todayStr) - new Date(lastReviewDate));
+            daysSinceReview = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          }
 
-        if (daysSinceReview >= 3) {
-          const priorityScore = (100 - subProgress) * 0.5 + topicObj.weight * 10 + 25 + Math.min(daysSinceReview, 10);
-          candidates.push({
-            subject: sub.name,
-            topic: topicObj.name,
-            motivatingTitle: `Повторение: ${topicObj.motivatingTitle}`,
-            weight: topicObj.weight,
-            priority: priorityScore,
-            type: "repetition"
-          });
+          if (daysSinceReview >= 3) {
+            const priorityScore = (100 - subProgress) * 0.5 + topicObj.weight * 10 + 25 + Math.min(daysSinceReview, 10);
+            candidates.push({
+              subject: sub.name,
+              topic: topicObj.name,
+              motivatingTitle: `Повторение: ${topicObj.motivatingTitle}`,
+              weight: topicObj.weight,
+              priority: priorityScore,
+              type: "repetition_fallback"
+            });
+          }
         }
       }
     });
