@@ -4,7 +4,7 @@ import {
   shouldSkipRemainingInBlock,
 } from "../../../shared/utils/diagnosticEngine";
 
-export function DiagnosticTest({ user, onComplete }) {
+export function MockExam({ user, onComplete }) {
   const [session] = useState(() =>
     initializeDiagnosticSession({
       grade: user.grade || 11,

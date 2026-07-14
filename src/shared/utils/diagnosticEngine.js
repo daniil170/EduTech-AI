@@ -1,56 +1,29 @@
-import { diagnosticQuestions } from "../data/diagnosticQuestions";
+import { getDiagnosticQuestions } from '../data/diagnosticQuestions';
 
 export function initializeDiagnosticSession(userProfile) {
-  const { grade, selectedSubjects } = userProfile;
+  const { grade, profileCombo } = userProfile;
+  const isOrientationTrack = grade === 9 || grade === 10;
 
-  if (grade === 9 || grade === 10) {
-    return {
-      questions: diagnosticQuestions.filter(
-        (q) => q.assessmentType === "orientation",
-      ),
-      history: {},
-      masteryProgress: {},
-      isOrientation: true,
-    };
-  }
-
-  const mandatorySubjects = [
-    "kazakhstan_history",
-    "reading_literacy",
-    "math_literacy",
-  ];
-
-  const deepQuestions = diagnosticQuestions.filter(
-    (q) => q.assessmentType === "deep" && selectedSubjects.includes(q.subject),
-  );
-
-  const lightQuestions = diagnosticQuestions.filter(
-    (q) =>
-      q.assessmentType === "light" && mandatorySubjects.includes(q.subject),
-  );
+  const questions = getDiagnosticQuestions(profileCombo, isOrientationTrack);
 
   return {
-    questions: [...deepQuestions, ...lightQuestions],
+    questions,
     history: {},
     topicBlockStats: {},
     masteryProgress: {},
-    isOrientation: false,
+    isOrientation: isOrientationTrack
   };
 }
 
-export function shouldSkipRemainingInBlock(
-  topicBlock,
-  history,
-  currentQuestions,
-) {
-  if (!topicBlock) return false;
+export function shouldSkipRemainingInBlock(topic, history, currentQuestions) {
+  if (!topic) return false;
 
-  const answeredInBlock = currentQuestions.filter(
-    (q) => q.topicBlock === topicBlock && history[q.id] !== undefined,
+  const answeredInTopic = currentQuestions.filter(
+    q => q.topic === topic && history[q.id] !== undefined
   );
 
-  if (answeredInBlock.length >= 2) {
-    const allCorrect = answeredInBlock.every((q) => history[q.id] === true);
+  if (answeredInTopic.length >= 2) {
+    const allCorrect = answeredInTopic.every(q => history[q.id] === true);
     return allCorrect;
   }
 
