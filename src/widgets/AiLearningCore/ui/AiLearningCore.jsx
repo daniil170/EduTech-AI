@@ -192,8 +192,66 @@ export const AiLearningCore = ({
         await import("../../../shared/data/contentService");
       const lessonMeta = await fetchLessonContent(subject, topic);
 
+      let theoryText = lessonMeta.theory;
+      const isFallbackTheory = theoryText && theoryText.includes("В рамках данного урока по предмету");
+
+      if (isFallbackTheory) {
+        const subjectSlug = subject.toLowerCase().replace(/[^a-zа-я0-9]+/g, "_");
+        const topicSlug = topic.toLowerCase().replace(/[^a-zа-я0-9]+/g, "_");
+        const cacheDocId = `${subjectSlug}_${topicSlug}`;
+
+        try {
+          // 1. Попытка загрузить теорию из кэша Firestore
+          const cacheRef = doc(db, "cachedLessons", cacheDocId);
+          const cacheSnap = await getDoc(cacheRef);
+
+          if (cacheSnap.exists()) {
+            theoryText = cacheSnap.data().theory;
+          } else if (geminiKey) {
+            // 2. Если кэша нет — делаем единственный запрос к Gemini
+            const genPrompt = `Ты — ведущий преподаватель по подготовке к ЕНТ. 
+Напиши подробный, структурированный, глубокий теоретический конспект по предмету "${subject}", тема: "${topic}".
+Конспект должен содержать:
+1. Подробный теоретический разбор, исторический контекст (если применимо), ключевые даты и факты.
+2. Важные правила, формулы (в формате LaTeX, например: $E=mc^2$), законы или определения.
+3. Разбор 2-3 практических примеров или кейсов, которые часто встречаются на ЕНТ, с пошаговыми комментариями.
+4. Раздел "Секреты ЕНТ" — лайфхаки, ловушки составителей тестов и на что обратить особое внимание.
+
+Оформи урок в красивом формате Markdown с использованием списков, жирного шрифта, формул LaTeX. Теория должна быть максимально развернутой, полезной и понятной ученику. Не пиши общих слов, дай реальные знания для сдачи экзамена на высокий балл.`;
+
+            const genResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: genPrompt }] }],
+                }),
+              }
+            );
+            if (genResponse.ok) {
+              const genData = await genResponse.json();
+              const text = genData.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                theoryText = text;
+                
+                // 3. Сохраняем в кэш Firestore, чтобы повторно не вызывать Gemini
+                await setDoc(cacheRef, {
+                  theory: text,
+                  subject,
+                  topic,
+                  createdAt: new Date()
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to handle cached theory:", err);
+        }
+      }
+
       const contentStructure = {
-        theory: lessonMeta.theory,
+        theory: theoryText,
         formula: lessonMeta.formula,
         tasks: [],
       };

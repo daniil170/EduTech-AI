@@ -1,16 +1,41 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, query, collection, where, getDocs } from "firebase/firestore";
 import { auth, db } from "./app/providers/Firebase/firebase";
 
 import { LandingPage } from "./pages/LandingPage";
 import { Workspace } from "./pages/Workspace";
+import { ResetPassword } from "./pages/ResetPassword";
+import { PrivacyPolicyModal } from "./features/PrivacyPolicyModal";
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const [showCookieBanner, setShowCookieBanner] = useState(false);
+  const [cookieDocOpen, setCookieDocOpen] = useState(false);
+  const [cookieDocType, setCookieDocType] = useState("cookies");
+
+  useEffect(() => {
+    const consent = localStorage.getItem("cookie_consent");
+    if (!consent) {
+      const timer = setTimeout(() => {
+        setShowCookieBanner(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleAcceptCookies = () => {
+    localStorage.setItem("cookie_consent", "accepted");
+    setShowCookieBanner(false);
+  };
+
+  const handleDeclineCookies = () => {
+    localStorage.setItem("cookie_consent", "declined");
+    setShowCookieBanner(false);
+  };
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
@@ -35,13 +60,42 @@ function App() {
             const savedGrade = localStorage.getItem("selected_grade") || "11 класс";
             const savedDaysToUnt = localStorage.getItem("selected_days_to_unt") || "";
             const savedStudyTimeSlot = localStorage.getItem("selected_study_time_slot") || "14:00 - 20:00";
+            const savedNickname = localStorage.getItem("selected_nickname") || "";
             localStorage.removeItem("selected_role");
             localStorage.removeItem("selected_grade");
             localStorage.removeItem("selected_days_to_unt");
             localStorage.removeItem("selected_study_time_slot");
+            localStorage.removeItem("selected_nickname");
+
+            let finalNickname = savedNickname;
+            if (!finalNickname) {
+              const baseName = currentUser.email ? currentUser.email.split("@")[0].replace(/[^a-zA-Z0-9_-]/g, "") : `user_${Math.random().toString(36).substring(2, 7)}`;
+              let tempName = baseName || `user_${Math.random().toString(36).substring(2, 7)}`;
+              let isUnique = false;
+              let attempts = 0;
+              while (!isUnique && attempts < 5) {
+                const q = query(
+                  collection(db, "users"),
+                  where("nicknameLower", "==", tempName.toLowerCase())
+                );
+                const querySnap = await getDocs(q);
+                if (querySnap.empty) {
+                  isUnique = true;
+                  finalNickname = tempName;
+                } else {
+                  tempName = `${baseName}_${Math.floor(100 + Math.random() * 900)}`;
+                  attempts++;
+                }
+              }
+              if (!finalNickname) {
+                finalNickname = `${baseName}_${Date.now().toString().slice(-4)}`;
+              }
+            }
 
             await setDoc(userDocRef, {
               email: currentUser.email,
+              nickname: finalNickname,
+              nicknameLower: finalNickname.toLowerCase(),
               role: isFounderEmail ? "founder" : "student",
               tariff: isFounderEmail ? "founder" : (isWhitelisted ? "whitelisted" : "free"),
               grade: savedGrade,
@@ -123,7 +177,7 @@ function App() {
       } else {
         setUser(null);
         setLoading(false);
-        if (window.location.pathname !== "/") {
+        if (window.location.pathname !== "/" && window.location.pathname !== "/reset-password") {
           navigate("/");
         }
       }
@@ -173,11 +227,57 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage user={user} />} />
-      <Route path="/dashboard" element={<Navigate to="/workspace" />} />
-      <Route path="/workspace" element={user ? <Workspace /> : <Navigate to="/" />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<LandingPage user={user} />} />
+        <Route path="/dashboard" element={<Navigate to="/workspace" />} />
+        <Route path="/workspace" element={user ? <Workspace /> : <Navigate to="/" />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+      </Routes>
+
+      {showCookieBanner && (
+        <div className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:max-w-[420px] bg-slate-900/95 border border-slate-800/80 rounded-3xl p-5 shadow-2xl shadow-slate-950/60 backdrop-blur-xl z-50 flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-5 duration-300 font-sans">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl mt-0.5">🍪</span>
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-white tracking-wide uppercase">Использование файлов cookie</h4>
+              <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                Мы используем файлы cookie для вашей авторизации, обеспечения безопасности и настройки персонализированного ИИ-обучения. Ознакомьтесь с нашей{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCookieDocType("cookies");
+                    setCookieDocOpen(true);
+                  }}
+                  className="text-indigo-400 hover:underline font-bold inline border-none bg-transparent p-0 cursor-pointer text-[10px]"
+                >
+                  Политикой использования cookie
+                </button>
+                .
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleDeclineCookies}
+              className="flex-1 bg-slate-805 hover:bg-slate-700 text-slate-300 hover:text-white transition py-2 px-4 rounded-xl text-[10px] font-bold border border-slate-800/60 cursor-pointer"
+            >
+              Отклонить
+            </button>
+            <button
+              onClick={handleAcceptCookies}
+              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white transition py-2 px-4 rounded-xl text-[10px] font-black cursor-pointer shadow-lg shadow-indigo-600/20"
+            >
+              Принять всё
+            </button>
+          </div>
+        </div>
+      )}
+
+      {cookieDocOpen && (
+        <PrivacyPolicyModal onClose={() => setCookieDocOpen(false)} documentType={cookieDocType} />
+      )}
+    </>
   );
 }
 

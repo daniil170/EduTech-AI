@@ -9,8 +9,30 @@ export async function fetchQuestionContent(storagePath) {
       throw new Error("Missing storage path");
     }
     
-    // Переводим ТЗ-путь вида gs://bank/subject/topic/qId.json в относительный путь для Cloud Storage
-    const relativePath = storagePath.replace("gs://bank/", "");
+    let relativePath;
+    if (storagePath.startsWith("gs://")) {
+      const pathWithoutProtocol = storagePath.slice(5);
+      const firstSlashIdx = pathWithoutProtocol.indexOf("/");
+      if (firstSlashIdx !== -1) {
+        relativePath = pathWithoutProtocol.slice(firstSlashIdx + 1);
+      } else {
+        relativePath = pathWithoutProtocol;
+      }
+    } else if (storagePath.startsWith("https://firebasestorage.googleapis.com")) {
+      try {
+        const urlObj = new URL(storagePath);
+        const parts = urlObj.pathname.split("/o/");
+        if (parts.length > 1) {
+          relativePath = decodeURIComponent(parts[1]);
+        } else {
+          relativePath = storagePath;
+        }
+      } catch {
+        relativePath = storagePath;
+      }
+    } else {
+      relativePath = storagePath;
+    }
     const fileRef = ref(storage, relativePath);
     
     // Получаем публичную/защищенную ссылку на скачивание JSON-файла контента
@@ -57,19 +79,19 @@ export function getLocalLessonFallback(subject, topic) {
     tasks = [
       {
         question: `Тестовое задание по теме "${topic}" (Базовый уровень):`,
-        options: ["A) Вариант 1 (верный)", "B) Вариант 2", "C) Вариант 3", "D) Вариант 4"],
+        options: ["A) Вариант 1", "B) Вариант 2", "C) Вариант 3", "D) Вариант 4"],
         correct: 0,
         explanation: "Пошаговый разбор решения задачи базовой сложности."
       },
       {
         question: `Тестовое задание по теме "${topic}" (Средний уровень):`,
-        options: ["A) Вариант 1", "B) Вариант 2 (верный)", "C) Вариант 3", "D) Вариант 4"],
+        options: ["A) Вариант 1", "B) Вариант 2", "C) Вариант 3", "D) Вариант 4"],
         correct: 1,
         explanation: "Подробный математический разбор решения среднего уровня."
       },
       {
         question: `Тестовое задание по теме "${topic}" (Сложный уровень):`,
-        options: ["A) Вариант 1", "B) Вариант 2", "C) Вариант 3 (верный)", "D) Вариант 4"],
+        options: ["A) Вариант 1", "B) Вариант 2", "C) Вариант 3", "D) Вариант 4"],
         correct: 2,
         explanation: "Глубокое объяснение алгоритма решения сложной задачи."
       }
@@ -78,19 +100,19 @@ export function getLocalLessonFallback(subject, topic) {
     tasks = [
       {
         question: `Какое из утверждений о теме "${topic}" является верным?`,
-        options: ["A) Утверждение A (верно)", "B) Утверждение B", "C) Утверждение C", "D) Утверждение D"],
+        options: ["A) Утверждение A", "B) Утверждение B", "C) Утверждение C", "D) Утверждение D"],
         correct: 0,
         explanation: "Подробный исторический/смысловой разбор вариантов ответа."
       },
       {
         question: `Выберите наиболее значимый фактор, характеризующий тему "${topic}":`,
-        options: ["A) Второстепенная деталь", "B) Главный фактор (верный)", "C) Ошибочная характеристика", "D) Случайное совпадение"],
+        options: ["A) Второстепенная деталь", "B) Главный фактор", "C) Ошибочная характеристика", "D) Случайное совпадение"],
         correct: 1,
         explanation: "Анализ ключевых понятий и аргументов по теме."
       },
       {
         question: `Укажите верную причинно-следственную связь для процесса "${topic}":`,
-        options: ["A) Неверная связь", "B) Ошибочное суждение", "C) Доказанная причинно-следственная связь (верно)", "D) Обратное влияние"],
+        options: ["A) Неверная связь", "B) Ошибочное суждение", "C) Доказанная причинно-следственная связь", "D) Обратное влияние"],
         correct: 2,
         explanation: "Разбор логической взаимосвязи событий."
       }

@@ -19,6 +19,10 @@ const cleanText = (str) => {
   // Escape percentages that are not already escaped
   cleaned = cleaned.replace(/(\d+)%/g, "$1\\%");
 
+  // Support Russian ctg/tg Math symbols in KaTeX
+  cleaned = cleaned.replace(/\\mathrmctg\b/g, "\\mathrm{ctg}");
+  cleaned = cleaned.replace(/\\mathrmtg\b/g, "\\mathrm{tg}");
+
   return cleaned;
 };
 
@@ -36,7 +40,16 @@ export const MathRenderer = ({ text, inline = false, className = "" }) => {
             { left: "\\[", right: "\\]", display: true }
           ],
           throwOnError: false,
-          errorColor: "#f59e0b" // amber-500
+          errorColor: "#f59e0b", // amber-500
+          strict: "ignore",
+          macros: {
+            "\\tg": "\\tan",
+            "\\ctg": "\\cot",
+            "\\arctg": "\\arctan",
+            "\\arcctg": "\\arccot",
+            "\\mathrmtg": "\\tan",
+            "\\mathrmctg": "\\cot"
+          }
         });
       } catch (err) {
         console.error("KaTeX auto-render error:", err);

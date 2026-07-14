@@ -12,11 +12,13 @@ import {
   getMonthsUntilENT,
   calculateEntPrice,
 } from "../../../shared/utils/priceCalculator";
+import { ParentTelegramModal } from "../../ParentTelegramModal";
 
 export const SubscriptionModal = ({ user, studentStats, onClose }) => {
   const isGrade11 = studentStats?.grade === 11 || studentStats?.class === 11;
   const monthsLeft = getMonthsUntilENT();
 
+  const [showUltimatePromo, setShowUltimatePromo] = useState(false);
   const [billingCycle, setBillingCycle] = useState(
     isGrade11 && monthsLeft > 2 ? "seasonal" : "monthly",
   );
@@ -145,9 +147,10 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
       setPaymentStepText("Подтверждение транзакции...");
       await new Promise((r) => setTimeout(r, 600));
 
-      if (user && selectedPlanForPay) {
+      const purchasedPlan = selectedPlanForPay;
+      if (user && purchasedPlan) {
         await updateDoc(doc(db, "users", user.uid), {
-          tariff: selectedPlanForPay.id,
+          tariff: purchasedPlan.id,
         });
       }
 
@@ -155,7 +158,13 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
       setIsPaymentOpen(false);
       setSelectedPlanForPay(null);
       setPaymentForm({ number: "", expiry: "", cvc: "", name: "" });
-      alert(`Тариф успешно изменен на "${selectedPlanForPay.name}"!`);
+
+      if (purchasedPlan && purchasedPlan.id === "ultimate") {
+        setShowUltimatePromo(true);
+      } else {
+        alert(`Тариф успешно изменен на "${purchasedPlan?.name || "Новый тариф"}"!`);
+        onClose();
+      }
     } catch (err) {
       console.error("Payment error:", err);
       setPaymentError(
@@ -200,6 +209,117 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
       alert("Не удалось удалить из вайтлиста.");
     }
   };
+
+  const isAdmin = studentStats?.role === "founder" || user?.email?.toLowerCase() === "daniilivakin30@gmail.com";
+
+  if (isAdmin) {
+    return (
+      <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl border border-slate-800/80 text-white relative text-center space-y-6 max-h-[92vh] overflow-y-auto custom-scrollbar">
+          <button
+            onClick={onClose}
+            className="absolute top-6 right-6 text-slate-400 hover:text-white transition-colors p-2 bg-slate-800/40 hover:bg-slate-800 rounded-full"
+          >
+            ✕
+          </button>
+
+          <div className="w-16 h-16 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center text-3xl border border-rose-500/20 shadow-inner mx-auto">
+            👑
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-[10px] bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+              Доступ Основателя
+            </span>
+            <h3 className="text-xl font-black mt-2 text-white">
+              Личный Кабинет CEO
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed font-medium">
+              Добро пожаловать в команду создателей платформы EduTrack. У вас активирован абсолютный безлимитный доступ ко всем функциям и ИИ-генераторам.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/40 border border-slate-800/60 p-5 rounded-2xl text-xs font-semibold text-slate-400 space-y-3">
+            <p className="flex justify-between">
+              <span>Статус аккаунта:</span>
+              <span className="font-black text-emerald-400 uppercase tracking-wide">Активен (Безлимит)</span>
+            </p>
+            <p className="flex justify-between">
+              <span>Лимит токенов:</span>
+              <span className="font-bold text-white">Не ограничен (∞)</span>
+            </p>
+            <p className="flex justify-between">
+              <span>Модерация задач:</span>
+              <span className="font-bold text-white">Доступна</span>
+            </p>
+          </div>
+
+          {/* Whitelist Manager for Founder */}
+          <div className="border-t border-slate-800 pt-6 mt-6 space-y-4 text-left">
+            <h4 className="text-xs font-black uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+              <span>🔑</span> Панель CEO & Founder (Управление друзьями)
+            </h4>
+            <p className="text-[10px] text-slate-400 leading-normal">
+              Добавьте email адреса ваших друзей, чтобы выдать им пожизненный бесплатный доступ к Premium-тарифам.
+            </p>
+
+            <form onSubmit={handleAddWhitelistEmail} className="flex gap-2">
+              <input
+                type="email"
+                placeholder="friend@example.com"
+                value={newWhitelistEmail}
+                onChange={(e) => setNewWhitelistEmail(e.target.value)}
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 text-white"
+                required
+              />
+              <button
+                type="submit"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              >
+                Выдать доступ
+              </button>
+            </form>
+
+            <div className="space-y-1.5">
+              <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                Приглашенные друзья ({whitelistEmails.length}):
+              </div>
+              {whitelistEmails.length === 0 ? (
+                <p className="text-[10px] text-slate-500 italic">Список пуст</p>
+              ) : (
+                <div className="max-h-28 overflow-y-auto border border-slate-800 rounded-xl divide-y divide-slate-800 bg-slate-950/20">
+                  {whitelistEmails.map((item) => (
+                    <div
+                      key={item.email}
+                      className="px-3 py-1.5 flex justify-between items-center text-[10px]"
+                    >
+                      <span className="font-semibold text-slate-300">
+                        {item.email}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveWhitelistEmail(item.email)}
+                        className="text-rose-500 hover:text-rose-700 font-bold transition cursor-pointer"
+                      >
+                        Аннулировать
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold transition shadow-md shadow-indigo-600/10 cursor-pointer"
+          >
+            Вернуться в панель управления
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-md z-[100] flex items-center justify-center p-4">
@@ -492,6 +612,9 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
                 </h4>
               </div>
               <div className="space-y-1">
+                <p className="text-[10px] text-indigo-400/90 leading-tight font-black">
+                  👨‍👩‍👦 Мониторинг для родителей в TG
+                </p>
                 <p className="text-[10px] text-indigo-400/90 leading-tight">
                   Прогноз балла & симуляторы
                 </p>
@@ -501,7 +624,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
                 <p className="text-[10px] text-slate-400 leading-tight">
                   Интенсивы «30 дней до ЕНТ»
                 </p>
-                <p className="text-[10px] text-slate-400 birds leading-tight">
+                <p className="text-[10px] text-slate-400 leading-tight">
                   Приоритет пополнения банка
                 </p>
               </div>
@@ -563,7 +686,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
             )}
           </div>
           <div className="border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800 bg-slate-950/20 font-sans text-xs">
-            <div className="grid grid-cols-5 p-3.5 bg-slate-950/60 font-black text-slate-300 uppercase tracking-widest text-[9px]">
+            <div className="grid grid-cols-6 p-3.5 bg-slate-950/60 font-black text-slate-300 uppercase tracking-widest text-[9px]">
               <div className="col-span-2">Фича / Возможность</div>
               <div className="text-center">Free</div>
               <div className="text-center">Basic</div>
@@ -571,7 +694,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               <div className="text-center text-indigo-400">Ultra</div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Все 5 предметов & все уроки
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -592,7 +715,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Дневной лимит задач
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -613,7 +736,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Надстройка: Что учить дальше?
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -641,7 +764,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Smart Practice (SRS Лейтнер)
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -658,7 +781,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Умный календарь
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -675,7 +798,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Режим ЕНТ & Прогноз балла
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -690,7 +813,7 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-5 p-3.5 items-center">
+            <div className="grid grid-cols-6 p-3.5 items-center">
               <div className="col-span-2 font-bold text-slate-300">
                 Пополнение банка под слабые темы
                 <p className="text-[9px] text-slate-500 font-medium mt-0.5">
@@ -702,6 +825,21 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
               <div className="text-center text-slate-500">❌ Нет</div>
               <div className="text-center text-indigo-400 font-semibold">
                 ✓ Приоритет
+              </div>
+            </div>
+
+            <div className="grid grid-cols-6 p-3.5 items-center">
+              <div className="col-span-2 font-bold text-slate-300">
+                Мониторинг для родителей
+                <p className="text-[9px] text-slate-500 font-medium mt-0.5">
+                  Автоматические отчёты успеваемости в Telegram-бот
+                </p>
+              </div>
+              <div className="text-center text-slate-500">❌ Нет</div>
+              <div className="text-center text-slate-500">❌ Нет</div>
+              <div className="text-center text-slate-500">❌ Нет</div>
+              <div className="text-center text-indigo-400 font-bold">
+                ✓ Да
               </div>
             </div>
           </div>
@@ -913,6 +1051,16 @@ export const SubscriptionModal = ({ user, studentStats, onClose }) => {
             )}
           </div>
         </div>
+      )}
+
+      {showUltimatePromo && (
+        <ParentTelegramModal
+          nickname={studentStats?.nickname}
+          onClose={() => {
+            setShowUltimatePromo(false);
+            onClose();
+          }}
+        />
       )}
     </div>
   );

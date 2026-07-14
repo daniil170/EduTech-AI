@@ -24,7 +24,9 @@ import { InteractiveCalendar } from "../../../widgets/InteractiveCalendar";
 import { StudentAnalytics } from "../../../widgets/StudentAnalytics/ui/StudentAnalytics";
 import { FinalSimulation } from "../../../widgets/FinalSimulation";
 import { CeoPanel } from "../../../widgets/CeoPanel";
+import { UsersAnalytics } from "../../../widgets/UsersAnalytics";
 import { SubscriptionModal } from "../../../features/SubscriptionModal";
+import { ProfileSettingsModal } from "../../../features/ProfileSettingsModal";
 import { CongratsModal } from "../../../features/CongratsModal";
 import { CertificateModal } from "../../../features/CertificateModal";
 import { MathRenderer } from "../../../shared/ui/MathRenderer";
@@ -34,7 +36,6 @@ import {
   entDatabase,
 } from "../../../shared/data/entBase";
 import "katex/dist/katex.min.css";
-import { BlockMath, InlineMath } from "react-katex";
 
 const getTopicsForSubject = (subjectName) => {
   const defaultTopics = {
@@ -162,12 +163,13 @@ const getTopicsForSubject = (subjectName) => {
 
 export const Workspace = () => {
   const user = auth.currentUser;
-  const userName = user?.displayName || user?.email?.split("@")[0] || "Ученик";
 
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem("active_tab") || "dashboard";
   });
   const [activeExam, setActiveExam] = useState(null);
+
+
 
   useEffect(() => {
     localStorage.setItem("active_tab", activeTab);
@@ -290,10 +292,22 @@ export const Workspace = () => {
     }
   });
 
+  const userName = studentStats?.nickname || user?.displayName || user?.email?.split("@")[0] || "Ученик";
+  const isAdmin = studentStats?.role === "founder" || user?.email?.toLowerCase() === "daniilivakin30@gmail.com";
+
+  useEffect(() => {
+    if (isAdmin && activeTab !== "ceo_panel" && activeTab !== "users_analytics") {
+      Promise.resolve().then(() => {
+        setActiveTab("ceo_panel");
+      });
+    }
+  }, [isAdmin, activeTab]);
+
   const [geminiKey] = useState(
     GEMINI_API_KEY || localStorage.getItem("gemini_api_key") || "",
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
   const [isCertificateOpen, setIsCertificateOpen] = useState(false);
   const [isCongratsOpen, setIsCongratsOpen] = useState(false);
 
@@ -390,15 +404,6 @@ export const Workspace = () => {
     return true;
   });
 
-  const formatFormulaForKatex = (rawFormula) => {
-    if (!rawFormula) return "";
-    let clean = rawFormula.toString().trim();
-    if (clean.startsWith("$$") && clean.endsWith("$$")) clean = clean.slice(2, -2);
-    else if (clean.startsWith("$") && clean.endsWith("$")) clean = clean.slice(1, -1);
-    if (clean.startsWith("\\[") && clean.endsWith("\\]")) clean = clean.slice(2, -2);
-    if (clean.startsWith("\\(") && clean.endsWith("\\)")) clean = clean.slice(2, -2);
-    return clean.trim();
-  };
 
   const hasMathContent = (text) => {
     if (!text) return false;
@@ -407,76 +412,42 @@ export const Workspace = () => {
     );
   };
 
-  const renderMixedContent = (text) => {
-    if (!text) return null;
-    const parts = text.split(/(\$[^$]+\$)/g);
-    
-    return (
-      <>
-        {parts.map((part, i) => {
-          if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
-            try {
-              return <InlineMath key={i} math={formatFormulaForKatex(part)} />;
-            } catch {
-              return <span key={i} className="text-amber-500">{part}</span>;
-            }
-          }
-          
-          if (hasMathContent(part)) {
-            try {
-              return <InlineMath key={i} math={formatFormulaForKatex(part)} />;
-            } catch {
-              return <span key={i}>{part}</span>;
-            }
-          }
-          
-          return <span key={i}>{part}</span>;
-        })}
-      </>
-    );
-  };
 
   const renderOptionContent = (optText) => {
     if (!optText) return null;
     const letterMatch = optText.match(/^([A-Dа-г][).]\s*)([\s\S]*)$/i);
     if (letterMatch) {
+      const optionBody = letterMatch[2].trim();
+      const formattedBody = (optionBody.includes("$") || !hasMathContent(optionBody))
+        ? optionBody
+        : `$${optionBody}$`;
       return (
-        <span
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+        <span className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-bold text-slate-800 dark:text-white mr-0.5">
             {letterMatch[1]}
           </span>
-          {renderMixedContent(letterMatch[2].trim())}
+          <MathRenderer text={formattedBody} inline={true} className="text-slate-850 dark:text-slate-200" />
         </span>
       );
     }
-    return renderMixedContent(optText);
+    const formattedText = (optText.includes("$") || !hasMathContent(optText))
+      ? optText
+      : `$${optText}$`;
+    return <MathRenderer text={formattedText} inline={true} className="text-slate-850 dark:text-slate-200" />;
   };
 
   const safeBlockMath = (formula) => {
     if (!formula) return null;
-    try {
-      return <BlockMath math={formatFormulaForKatex(formula)} />;
-    } catch {
-      return (
-        <div
-          style={{
-            padding: "1rem",
-            fontFamily: "monospace",
-            fontSize: "14px",
-            color: "#34d399",
-          }}
-        >
-          {formula}
-        </div>
-      );
-    }
+    const formattedFormula = formula.toString().includes("$$")
+      ? formula
+      : `$$${formula}$$`;
+    return (
+      <MathRenderer
+        text={formattedFormula}
+        inline={false}
+        className="text-white text-base"
+      />
+    );
   };
 
   const generateLocalTask = (subject, topic) => {
@@ -1625,32 +1596,47 @@ const handleCheckTask = async () => {
               </span>
               EduTrack <span className="text-indigo-600">ЕНТ AI</span>
             </div>
-            <div className="mt-2 flex flex-col gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-2 rounded-xl w-fit">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-                  {studentStats?.grade || "11 класс"} •{" "}
-                  {studentStats?.examType || "ЕНТ"}
-                </p>
-              </div>
-              {!!studentStats?.daysToUnt && (
-                <div className="text-[9px] text-indigo-600 font-bold bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/40">
-                  🗓️ До ЕНТ: {studentStats.daysToUnt} дн.
+            {isAdmin ? (
+              <div className="mt-2 flex flex-col gap-1.5 bg-rose-50 border border-rose-100 px-2.5 py-2 rounded-xl w-fit">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                  <p className="text-[10px] font-bold text-rose-700 uppercase tracking-wide">
+                    Панель CEO
+                  </p>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-col gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-2 rounded-xl w-fit">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                    {studentStats?.grade || "11 класс"} •{" "}
+                    {studentStats?.examType || "ЕНТ"}
+                  </p>
+                </div>
+                {!!studentStats?.daysToUnt && (
+                  <div className="text-[9px] text-indigo-600 font-bold bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/40">
+                    🗓️ До ЕНТ: {studentStats.daysToUnt} дн.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <nav className="space-y-1">
             {[
-              { id: "dashboard", icon: "📊", label: "Личный Дашборд" },
-              { id: "tasks", icon: "🤖", label: "ИИ-Тренажер Задач" },
-              { id: "ai_lessons", icon: "🧠", label: "ИИ-Уроки и Пробники" },
-              { id: "exam_prep", icon: "🎓", label: "План Подготовки" },
-              { id: "calendar", icon: "📅", label: "Расписание" },
-              { id: "progress", icon: "📈", label: "Аналитика ИИ" },
-              ...(studentStats?.role === "founder" || user?.email?.toLowerCase() === "daniilivakin30@gmail.com"
-                ? [{ id: "ceo_panel", icon: "🔑", label: "Панель CEO" }]
-                : []),
+              ...(isAdmin
+                ? [
+                    { id: "ceo_panel", icon: "🔑", label: "Панель CEO" },
+                    { id: "users_analytics", icon: "📊", label: "Аналитика пользователей" }
+                  ]
+                : [
+                    { id: "dashboard", icon: "📊", label: "Личный Дашборд" },
+                    { id: "tasks", icon: "🤖", label: "ИИ-Тренажер Задач" },
+                    { id: "ai_lessons", icon: "🧠", label: "ИИ-Уроки и Пробники" },
+                    { id: "exam_prep", icon: "🎓", label: "План Подготовки" },
+                    { id: "calendar", icon: "📅", label: "Расписание" },
+                    { id: "progress", icon: "📈", label: "Аналитика ИИ" }
+                  ])
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1692,7 +1678,7 @@ const handleCheckTask = async () => {
           </span>
           <div className="flex items-center gap-4">
             {/* Gamification Badge */}
-            {(() => {
+            {!isAdmin && (() => {
               const xpVal = studentStats?.xp || 0;
               const currentLvl = Math.floor(xpVal / 1000) + 1;
               const xpInLvl = xpVal % 1000;
@@ -1715,6 +1701,13 @@ const handleCheckTask = async () => {
               title="Переключить тему"
             >
               {isDarkMode ? "🌙" : "☀️"}
+            </button>
+            <button
+              onClick={() => setIsProfileSettingsOpen(true)}
+              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-indigo-600 transition"
+              title="Настройки профиля"
+            >
+              ⚙️
             </button>
             <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-200/40 px-3 py-1.5 rounded-xl">
               <span className="text-xs font-bold text-slate-700">{userName}</span>
@@ -2709,6 +2702,10 @@ const handleCheckTask = async () => {
             />
           )}
 
+          {activeTab === "users_analytics" && (
+            <UsersAnalytics />
+          )}
+
           <footer className="pt-8 border-t border-slate-200/60 text-center text-xs text-slate-400">
             <p>
               EduTrack ЕНТ AI. Все права защищены.{" "}
@@ -2725,6 +2722,14 @@ const handleCheckTask = async () => {
           user={user}
           studentStats={studentStats}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+
+      {isProfileSettingsOpen && (
+        <ProfileSettingsModal
+          user={user}
+          studentStats={studentStats}
+          onClose={() => setIsProfileSettingsOpen(false)}
         />
       )}
 
